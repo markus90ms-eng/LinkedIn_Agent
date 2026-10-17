@@ -34,6 +34,9 @@ feeds:
 # Hook und ein Kernsatz werden automatisch fett gesetzt (false = aus)
 bold: true
 
+# Name unten auf den Bildkarten (leer lassen = keiner)
+image_footer: Markus Schultheiß
+
 # Jeden zweiten Tag = ca. 4 Posts pro Woche. Einmal pro Woche Entwürfe erzeugen.
 drafts_per_run: 4
 db_path: data/posts.db

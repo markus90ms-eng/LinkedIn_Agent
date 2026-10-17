@@ -47,7 +47,7 @@ def cmd_publish(cfg, conn, args):
         _show(p)
         if not args.yes and input("Jetzt auf LinkedIn veröffentlichen? [j/N] ").strip().lower() != "j":
             continue
-        pid = linkedin.publish(p["text"])
+        pid = linkedin.publish(p["text"], p["image_path"], p["image_alt"])
         db.mark_published(conn, p["id"], pid)
         print("Veröffentlicht:", pid)
 

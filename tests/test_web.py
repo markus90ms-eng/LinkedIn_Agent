@@ -17,7 +17,7 @@ def app(tmp_path, monkeypatch):
     db.add_draft(conn, "Erster <b>Post</b>", "A")
     db.add_draft(conn, "Zweiter Post", "A")
     published = []
-    monkeypatch.setattr(linkedin, "publish", lambda text: published.append(text) or "urn:li:share:1")
+    monkeypatch.setattr(linkedin, "publish", lambda text, *a: published.append(text) or "urn:li:share:1")
     monkeypatch.setattr(drafts, "generate_text", lambda cfg, topic, **kw: "Neu generiert")
     monkeypatch.setattr(drafts, "revise", lambda cfg, text, ins: text + " | " + ins)
     server = ThreadingHTTPServer(("127.0.0.1", 0), None)

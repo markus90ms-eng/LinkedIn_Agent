@@ -37,13 +37,18 @@ def generate_text(cfg, topic, article=None, notes=None, client=None):
 
 
 def _complete(cfg, client, prompt):
+    system = SYSTEM.format(voice=cfg["voice"], bold_rule=BOLD_RULE if cfg.get("bold", True) else "")
+    return _call(cfg, client, system, prompt)
+
+
+def _call(cfg, client, system, prompt, max_tokens=4000):
     # Sonnet 5.5 denkt standardmäßig und die Denk-Tokens zählen zu max_tokens: Das hat die
     # Posts mitten im Satz abgeschnitten. "between_tools" schaltet das Denken ab (disabled gibt 400).
     msg = client.messages.create(
         model=cfg["model"],
-        max_tokens=4000,
+        max_tokens=max_tokens,
         thinking={"type": "between_tools"},
-        system=SYSTEM.format(voice=cfg["voice"], bold_rule=BOLD_RULE if cfg.get("bold", True) else ""),
+        system=system,
         messages=[{"role": "user", "content": prompt}],
     )
     if msg.stop_reason != "end_turn":

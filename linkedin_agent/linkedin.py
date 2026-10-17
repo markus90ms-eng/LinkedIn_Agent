@@ -110,23 +110,46 @@ def authorize():
     print("Gespeichert in", TOKEN_FILE)
 
 
-def publish(text):
-    """Veröffentlicht einen Post und liefert die LinkedIn-Post-ID."""
+def _api(tok, method, url, **kw):
+    """Ruft die LinkedIn-API auf und probiert dabei die aktiven API-Versionen durch (426 = Version abgeschaltet)."""
+    for version in candidate_versions(tok.get("version")):
+        r = requests.request(method, url, headers={
+            "Authorization": f"Bearer {tok['access_token']}",
+            "LinkedIn-Version": version,
+            "X-Restli-Protocol-Version": "2.0.0",
+        }, timeout=60, **kw)
+        if r.status_code == 426:
+            continue
+        if tok.get("version") != version:
+            tok["version"] = version
+            TOKEN_FILE.write_text(json.dumps(tok))
+        return r
+    raise RuntimeError("Keine aktive LinkedIn-API-Version gefunden. Mit LINKEDIN_VERSION=JJJJMM in .env setzen.")
+
+
+def _upload_image(tok, image_path):
+    """Lädt ein Bild zu LinkedIn hoch und liefert die Bild-URN."""
+    r = _api(tok, "POST", "https://api.linkedin.com/rest/images?action=initializeUpload",
+             json={"initializeUploadRequest": {"owner": tok["author"]}})
+    if r.status_code != 200:
+        raise RuntimeError(f"LinkedIn-Fehler beim Bild-Upload {r.status_code}: {r.text}")
+    value = r.json()["value"]
+    up = requests.put(value["uploadUrl"], data=Path(image_path).read_bytes(),
+                      headers={"Authorization": f"Bearer {tok['access_token']}"}, timeout=120)
+    if up.status_code not in (200, 201):
+        raise RuntimeError(f"LinkedIn-Fehler beim Bild-Upload {up.status_code}: {up.text}")
+    return value["image"]
+
+
+def publish(text, image_path=None, image_alt=None):
+    """Veröffentlicht einen Post (optional mit Bild) und liefert die LinkedIn-Post-ID."""
     if not TOKEN_FILE.exists():
         raise RuntimeError("Nicht eingeloggt – erst `python -m linkedin_agent auth` ausführen.")
     tok = json.loads(TOKEN_FILE.read_text())
     payload = build_payload(tok["author"], apply_bold(text))
-    for version in candidate_versions(tok.get("version")):
-        r = requests.post("https://api.linkedin.com/rest/posts", json=payload, headers={
-            "Authorization": f"Bearer {tok['access_token']}",
-            "LinkedIn-Version": version,
-            "X-Restli-Protocol-Version": "2.0.0",
-        }, timeout=30)
-        if r.status_code == 426:  # Version nicht (mehr) aktiv, es wurde nichts gepostet
-            continue
-        if r.status_code != 201:
-            raise RuntimeError(f"LinkedIn-Fehler {r.status_code}: {r.text}")
-        tok["version"] = version
-        TOKEN_FILE.write_text(json.dumps(tok))
-        return r.headers.get("x-restli-id", "")
-    raise RuntimeError("Keine aktive LinkedIn-API-Version gefunden. Mit LINKEDIN_VERSION=JJJJMM in .env setzen.")
+    if image_path:
+        payload["content"] = {"media": {"id": _upload_image(tok, image_path), "altText": (image_alt or "")[:300]}}
+    r = _api(tok, "POST", "https://api.linkedin.com/rest/posts", json=payload)
+    if r.status_code != 201:
+        raise RuntimeError(f"LinkedIn-Fehler {r.status_code}: {r.text}")
+    return r.headers.get("x-restli-id", "")

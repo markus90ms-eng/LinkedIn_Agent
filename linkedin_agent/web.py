@@ -3,13 +3,15 @@
 Läuft nur auf 127.0.0.1 und nur, solange das Fenster offen ist.
 """
 import html
+import os
+import re
 import secrets
 import threading
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlencode, urlparse
 
-from . import db, drafts, linkedin
+from . import db, drafts, images, linkedin
 
 PAGE = """<!doctype html>
 <html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -57,17 +59,27 @@ def render(conn, token, msg="", error=False):
     parts = []
     if queue:
         p, rest = queue[0], queue[1:]
+        has_img = bool(p["image_path"]) and os.path.exists(p["image_path"])
+        img_block = ""
+        if has_img:
+            ver = int(os.path.getmtime(p["image_path"]))
+            img_block = (f'<img src="/img/{p["id"]}.png?v={ver}" alt="Bildvorschau" '
+                         f'style="max-width:320px;width:100%;border-radius:8px;margin-top:12px;display:block">'
+                         f'<label class="small"><input type="checkbox" name="with_image" value="1" checked> Bild mitposten</label>')
+        img_buttons = ('<button formaction="/image">Bild neu erstellen</button>'
+                       '<button formaction="/imageremove" class="danger">Bild entfernen</button>') if has_img \
+            else '<button formaction="/image">Bild erstellen</button>'
         src = f' · <a href="{esc(p["source_url"])}" target="_blank" rel="noopener">Quelle</a>' if p["source_url"] else ""
         parts.append(
             f'<div class="card"><div class="meta">Nächster Post · Thema: {esc(p["topic"] or "-")}{src} · '
             f'{len(rest)} weitere in der Warteschlange</div>'
             f'<form method="post" action="/post" id="main">'
             f'<input type="hidden" name="token" value="{token}"><input type="hidden" name="id" value="{p["id"]}">'
-            f'<textarea name="text">{esc(p["text"])}</textarea>'
+            f'<textarea name="text">{esc(p["text"])}</textarea>{img_block}'
             f'<div class="row">'
             f'<button class="primary" onclick="return confirm(\'Jetzt öffentlich auf LinkedIn veröffentlichen?\')">Jetzt posten</button>'
             f'<button type="button" onclick="wrapBold()" title="Markierten Text fett machen">Fett</button>'
-            f'<button formaction="/save">Änderungen speichern</button></div></form>'
+            f'<button formaction="/save">Änderungen speichern</button>{img_buttons}</div></form>'
             f'<p class="small">Fett: Text markieren und auf „Fett“ klicken (setzt ** um die Stelle). '
             f'Beim Posten wird daraus fette Schrift. Sparsam nutzen, Screenreader lesen sie schlecht vor.</p>'
             f'<div class="row">'
@@ -120,6 +132,14 @@ def make_handler(cfg, token, port):
             self.end_headers()
             self.wfile.write(data)
 
+        def _send_bytes(self, code, data, content_type):
+            self.send_response(code)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(data)
+
         def _redirect(self, msg, error=False):
             q = urlencode({"msg": msg, "err": "1" if error else ""})
             self._send(303, "", {"Location": f"/?{q}"})
@@ -127,6 +147,9 @@ def make_handler(cfg, token, port):
         def do_GET(self):
             if self.headers.get("Host") not in allowed_hosts:
                 return self._send(403, "Forbidden")
+            m = re.fullmatch(r"/img/(\d+)\.png", urlparse(self.path).path)
+            if m:
+                return self._image(int(m.group(1)))
             q = parse_qs(urlparse(self.path).query)
             conn = db.connect(cfg["db_path"])
             try:
@@ -134,6 +157,18 @@ def make_handler(cfg, token, port):
             finally:
                 conn.close()
             self._send(200, page)
+
+        def _image(self, pid):
+            conn = db.connect(cfg["db_path"])
+            try:
+                row = conn.execute("SELECT image_path FROM posts WHERE id=?", (pid,)).fetchone()
+            finally:
+                conn.close()
+            path = row["image_path"] if row else None
+            if not path or not os.path.exists(path):
+                return self._send(404, "Kein Bild")
+            with open(path, "rb") as f:
+                self._send_bytes(200, f.read(), "image/png")
 
         def do_POST(self):
             if self.headers.get("Host") not in allowed_hosts:
@@ -163,6 +198,17 @@ def make_handler(cfg, token, port):
             if action == "save":
                 db.update_text(conn, pid, form["text"])
                 return "Gespeichert."
+            if action == "image":
+                db.update_text(conn, pid, form["text"])
+                path, alt = images.make_card(cfg, form["text"], pid)
+                db.set_image(conn, pid, path, alt)
+                return "Bild erstellt. Bitte unten ansehen, bei Bedarf neu erstellen."
+            if action == "imageremove":
+                db.update_text(conn, pid, form["text"])
+                if row["image_path"] and os.path.exists(row["image_path"]):
+                    os.remove(row["image_path"])
+                db.set_image(conn, pid, None, None)
+                return "Bild entfernt."
             if action == "post":
                 with lock:  # verhindert Doppelposts bei doppeltem Klick
                     fresh = conn.execute("SELECT status FROM posts WHERE id=?", (pid,)).fetchone()
@@ -172,7 +218,9 @@ def make_handler(cfg, token, port):
                     if not text:
                         raise RuntimeError("Der Text ist leer.")
                     db.update_text(conn, pid, text)
-                    ref = linkedin.publish(text)
+                    path = row["image_path"] if form.get("with_image") and row["image_path"] \
+                        and os.path.exists(row["image_path"]) else None
+                    ref = linkedin.publish(text, path, row["image_alt"])
                     db.mark_published(conn, pid, ref)
                 return "Veröffentlicht. Der Post ist jetzt auf LinkedIn."
             if action == "regenerate":
