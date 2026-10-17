@@ -30,11 +30,18 @@ def generate_text(cfg, topic, article=None, notes=None, client=None):
     if notes:
         parts.append(f"Stichpunkte des Autors:\n{notes}")
     parts.append("Schreibe jetzt den Post.")
+    return _complete(cfg, client, "\n\n".join(parts))
+
+
+def _complete(cfg, client, prompt):
+    # Sonnet 5.5 denkt standardmäßig und die Denk-Tokens zählen zu max_tokens: Das hat die
+    # Posts mitten im Satz abgeschnitten. "between_tools" schaltet das Denken ab (disabled gibt 400).
     msg = client.messages.create(
         model=cfg["model"],
-        max_tokens=2000,
+        max_tokens=4000,
+        thinking={"type": "between_tools"},
         system=SYSTEM.format(voice=cfg["voice"]),
-        messages=[{"role": "user", "content": "\n\n".join(parts)}],
+        messages=[{"role": "user", "content": prompt}],
     )
     if msg.stop_reason == "max_tokens":
         raise RuntimeError("Entwurf wurde abgeschnitten (max_tokens erreicht).")
@@ -63,10 +70,4 @@ def draft_from_notes(cfg, conn, topic, notes, client=None):
 
 def revise(cfg, text, instruction, client=None):
     client = client or _client()
-    msg = client.messages.create(
-        model=cfg["model"],
-        max_tokens=1200,
-        system=SYSTEM.format(voice=cfg["voice"]),
-        messages=[{"role": "user", "content": f"Bisheriger Post:\n{text}\n\nÜberarbeite ihn: {instruction}\nGib nur den neuen Posttext aus."}],
-    )
-    return "".join(b.text for b in msg.content if b.type == "text").strip()
+    return _complete(cfg, client, f"Bisheriger Post:\n{text}\n\nÜberarbeite ihn: {instruction}\nGib nur den neuen Posttext aus.")
