@@ -15,7 +15,10 @@ Regeln:
 - Ein Artikel ist nur ein möglicher Anlass. Nutze ihn nur, wenn er klar zum Thema und zur Zielgruppe (Unternehmen, Marketing, Recruiting, Vertrieb) passt. Sonst ignoriere ihn komplett und schreibe den Post allein zum Thema.
 - Konstruiere niemals Vergleiche oder Analogien zu fachfremden Themen (Technik, Wissenschaft, Sport usw.), nur um einen Artikel unterzubringen.
 - Bei Bezug auf einen Artikel: eigene Einordnung statt Zusammenfassung, Quelle nicht als Link-Dump.
-- Der Post muss vollständig sein: Hook, Kernaussage, konkreter Tipp, Schlussfrage, Hashtags."""
+- Der Post muss vollständig sein: Hook, Kernaussage, konkreter Tipp, Schlussfrage, Hashtags.{bold_rule}"""
+
+BOLD_RULE = """
+- Hervorhebungen: Setze die erste Zeile (Hook) und höchstens einen weiteren Kernsatz in **doppelte Sternchen**, zum Beispiel **Das ist der Hook.** Nie Hashtags, nie ganze Absätze, insgesamt maximal zwei Stellen. Behalte vorhandene ** beim Überarbeiten bei."""
 
 
 def _client():
@@ -40,7 +43,7 @@ def _complete(cfg, client, prompt):
         model=cfg["model"],
         max_tokens=4000,
         thinking={"type": "between_tools"},
-        system=SYSTEM.format(voice=cfg["voice"]),
+        system=SYSTEM.format(voice=cfg["voice"], bold_rule=BOLD_RULE if cfg.get("bold", True) else ""),
         messages=[{"role": "user", "content": prompt}],
     )
     if msg.stop_reason != "end_turn":

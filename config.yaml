@@ -31,6 +31,9 @@ feeds:
   - https://www.horizont.net/news/feed
   - https://onlinemarketing.de/feed
 
+# Hook und ein Kernsatz werden automatisch fett gesetzt (false = aus)
+bold: true
+
 # Jeden zweiten Tag = ca. 4 Posts pro Woche. Einmal pro Woche Entwürfe erzeugen.
 drafts_per_run: 4
 db_path: data/posts.db
