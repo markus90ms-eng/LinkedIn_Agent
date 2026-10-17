@@ -160,29 +160,42 @@ def sanitize_scene(scene):
     return "".join(ET.tostring(c, encoding="unicode") for c in root)
 
 
-def _wrap_hook(hook):
-    """Wählt Schriftgröße und Zeilenumbrüche für den Hook (grobe Breitenschätzung für Fettschrift)."""
-    for size in (92, 84, 76, 68, 60, 54):
-        per_line = int(1000 / (0.58 * size))
-        lines, line = [], ""
-        for word in hook.split():
-            trial = f"{line} {word}".strip()
-            if len(trial) <= per_line or not line:
-                line = trial
-            else:
-                lines.append(line)
-                line = word
-        if line:
+def _wrap(hook, size):
+    per_line = int(1000 / (0.58 * size))
+    lines, line = [], ""
+    for word in hook.split():
+        trial = f"{line} {word}".strip()
+        if len(trial) <= per_line or not line:
+            line = trial
+        else:
             lines.append(line)
-        if len(lines) <= (2 if size > 76 else 3):  # drei Zeilen nur in kleinerer Schrift, sonst stößt der Text an den Namen
+            line = word
+    if line:
+        lines.append(line)
+    return lines
+
+
+def _wrap_hook(hook, footer=True):
+    """Wählt die größte Schrift, bei der der Hook in höchstens drei Zeilen passt, ohne einzelnes Wort in der
+    letzten Zeile (grobe Breitenschätzung für Fettschrift)."""
+    limit = 1062 if footer else 1110  # mit Namenszeile bleibt weniger Platz
+    sizes = (92, 84, 76, 68, 60, 54)
+    fits = [(size, _wrap(hook, size)) for size in sizes]
+    fits = [(size, lines) for size, lines in fits
+            if len(lines) <= 3 and 880 + (len(lines) - 1) * int(size * 1.18) <= limit]
+    for size, lines in fits:
+        if len(lines) == 1 or len(lines[-1]) >= 8:
             return size, lines
-    return 54, lines[:2] + [lines[2][:per_line - 1] + "…"]
+    if fits:
+        return fits[0]
+    lines = _wrap(hook, 54)
+    return 54, lines[:2] + [lines[2][:30] + "…"] if len(lines) > 2 else lines
 
 
 def compose_svg(scene, hook, footer="", palette="ozean"):
     pal = PALETTES[palette]
     fade = _lerp(pal["bg1"], pal["bg2"], SCENE_HEIGHT / SIZE)
-    size, lines = _wrap_hook(hook)
+    size, lines = _wrap_hook(hook, bool(footer))
     y = 880
     text = ""
     for line in lines:

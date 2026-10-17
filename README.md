@@ -25,7 +25,7 @@ http://127.0.0.1:8501 und zeigt den nächsten Post: bearbeiten, überarbeiten, n
 
 ## Bilder zu den Posts
 In der Weboberfläche: "Bild erstellen". Claude zeichnet eine passende Illustration (SVG), der Hook steht als Text
-darunter, unten dein Name (`image_footer` in `config.yaml`). Farbwelt (6 Stück) und Bildaufteilung wechseln bei jedem Bild,
+darunter. Optional steht unten ein Name (`image_footer: Dein Name` in `config.yaml`, standardmäßig aus). Farbwelt (6 Stück) und Bildaufteilung wechseln bei jedem Bild,
 nie dieselbe Farbwelt wie bei den letzten Bildern. "Bild neu erstellen" zeichnet ein anderes Motiv. Der Post-Text wird immer
 komplett veröffentlicht, das Bild hängt daran (Haken "Bild mitposten"). Die Umwandlung in PNG passiert im Browser, es wird
 nichts zusätzlich installiert. Das SVG von Claude wird vorher bereinigt (keine Skripte, Links oder Fremdbilder).
