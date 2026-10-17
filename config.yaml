@@ -1,24 +1,36 @@
 # Modell für die Texterstellung
 model: claude-sonnet-5-5
 
-# Dein Schreibstil – je konkreter, desto besser
+# Dein Schreibstil
 voice: |
-  Sprache: Deutsch, Du-Form zum Leser. Persönlich, direkt, ohne Buzzword-Floskeln.
-  Kurze Absätze, erste Zeile ist ein starker Hook. Keine Emojis-Ketten, max. 1-2 Emojis.
-  Ende mit einer konkreten Frage oder Handlungsaufforderung.
-  Länge: 600-1200 Zeichen. 3-5 passende Hashtags am Ende.
+  Autor: Vertriebler bei Ströer. Er berät Unternehmen, welche Marketingkanäle sie nutzen können,
+  um Mitarbeiter zu finden, mehr Kunden zu gewinnen und ihr Image zu stärken.
+  Zielgruppe: Geschäftsführer, Marketing- und HR-Verantwortliche, Mittelständler.
+  Sprache: Deutsch, Du-Form zum Leser. Locker, aber seriös. Ehrlich und nah am Menschen.
+  Klare, einfache Sätze, keine Buzzwords, kein Agentur-Sprech. Gern ein ehrlicher Gedanke,
+  der auch mal unbequem sein darf.
+  Aufbau: Starker Hook in der ersten Zeile, kurze Absätze, ein konkreter Tipp oder eine klare
+  Einordnung, am Ende eine Frage an die Leser.
+  Länge: 600-1200 Zeichen. Max. 1-2 Emojis. 3-4 passende Hashtags am Ende.
+  Ströer wird nur erwähnt, wenn es wirklich passt, und nie als Werbung.
+  Keine Versprechen zu Ergebnissen, keine erfundenen Zahlen, Kundennamen oder Projekte,
+  keine internen Informationen.
 
-# Themen, über die du regelmäßig posten möchtest
+# Themen, über die gepostet wird
 topics:
-  - Vertrieb im Mittelstand
-  - Lead-Generierung und Kaltakquise
-  - KI im Vertriebsalltag
+  - Wie gewinne ich qualifizierte Mitarbeiter?
+  - Mehr Aufmerksamkeit für mein Unternehmen, um neue Kunden zu gewinnen
+  - Bekannter werden und das Image stärken
+  - Was bewirkt richtiges Marketing?
+  - Wie komme ich an meine Zielgruppe?
+  - Wie werde ich besser gefunden im Netz?
 
-# RSS-Quellen, aus denen der Agent Anregungen zieht
+# RSS-Quellen (bitte prüfen, ob die Adressen noch stimmen)
 feeds:
-  - https://www.vertriebszeitung.de/feed/
   - https://t3n.de/rss.xml
+  - https://www.horizont.net/news/feed
+  - https://onlinemarketing.de/feed
 
-# Pro Lauf erzeugte Entwürfe
-drafts_per_run: 3
+# Jeden zweiten Tag = ca. 4 Posts pro Woche. Einmal pro Woche Entwürfe erzeugen.
+drafts_per_run: 4
 db_path: data/posts.db
