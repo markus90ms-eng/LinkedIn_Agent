@@ -66,7 +66,10 @@ def render(conn, token, msg="", error=False):
             f'<textarea name="text">{esc(p["text"])}</textarea>'
             f'<div class="row">'
             f'<button class="primary" onclick="return confirm(\'Jetzt öffentlich auf LinkedIn veröffentlichen?\')">Jetzt posten</button>'
+            f'<button type="button" onclick="wrapBold()" title="Markierten Text fett machen">Fett</button>'
             f'<button formaction="/save">Änderungen speichern</button></div></form>'
+            f'<p class="small">Fett: Text markieren und auf „Fett“ klicken (setzt ** um die Stelle). '
+            f'Beim Posten wird daraus fette Schrift. Sparsam nutzen, Screenreader lesen sie schlecht vor.</p>'
             f'<div class="row">'
             f'{_form(token, "regenerate", p["id"], "Neu generieren")}'
             f'{_form(token, "reject", p["id"], "Verwerfen", "danger", confirm="Diesen Entwurf verwerfen?")}</div>'
@@ -84,6 +87,17 @@ def render(conn, token, msg="", error=False):
     if published:
         items = "".join(f"<li>{esc((r['published_at'] or '')[:10])}: {esc(r['text'][:70])}…</li>" for r in published)
         parts.append(f'<div class="card"><div class="meta">Zuletzt veröffentlicht</div><ul>{items}</ul></div>')
+    parts.append("""<script>
+function wrapBold() {
+  const t = document.querySelector('#main textarea');
+  const a = t.selectionStart, b = t.selectionEnd;
+  if (a === b) { alert('Erst die Stelle im Text markieren, die fett werden soll.'); return; }
+  const sel = t.value.slice(a, b);
+  const wrapped = sel.startsWith('**') && sel.endsWith('**') && sel.length > 4 ? sel.slice(2, -2) : '**' + sel + '**';
+  t.setRangeText(wrapped, a, b, 'select');
+  t.focus();
+}
+</script>""")
     banner = f'<div class="msg{" err" if error else ""}">{esc(msg)}</div>' if msg else ""
     return PAGE.format(msg=banner, body="\n".join(parts))
 

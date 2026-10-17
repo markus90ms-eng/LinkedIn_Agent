@@ -47,3 +47,11 @@ def test_candidate_versions_newest_first_and_known_first():
     v = candidate_versions(today=date(2026, 2, 10))
     assert v[0] == "202602" and v[1] == "202601" and v[2] == "202512" and len(v) == 12
     assert candidate_versions("202609", today=date(2026, 10, 17))[0] == "202609"
+
+
+def test_apply_bold():
+    from linkedin_agent.linkedin import apply_bold
+    assert apply_bold("Das **Ziel** zählt") == "Das 𝗭𝗶𝗲𝗹 zählt"
+    assert apply_bold("**Ab 5**") == "𝗔𝗯 𝟱"
+    assert apply_bold("**Über ß**") == "𝗨̈𝗯𝗲𝗿 ß"
+    assert apply_bold("kein ** Ende") == "kein ** Ende"

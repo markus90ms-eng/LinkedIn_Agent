@@ -33,6 +33,26 @@ def candidate_versions(known=None, today=None):
     return list(dict.fromkeys(first + months))
 
 
+BOLD_MARK = re.compile(r"\*\*(.+?)\*\*")
+
+
+def _bold_char(c):
+    if "A" <= c <= "Z":
+        return chr(0x1D5D4 + ord(c) - ord("A"))
+    if "a" <= c <= "z":
+        return chr(0x1D5EE + ord(c) - ord("a"))
+    if "0" <= c <= "9":
+        return chr(0x1D7EC + ord(c) - ord("0"))
+    if c in "äöüÄÖÜ":  # keine eigenen fetten Umlaute: Grundbuchstabe + Pünktchen
+        return _bold_char({"ä": "a", "ö": "o", "ü": "u", "Ä": "A", "Ö": "O", "Ü": "U"}[c]) + "̈"
+    return c  # ß, Satzzeichen, Emojis bleiben normal
+
+
+def apply_bold(text):
+    """Wandelt **markierte** Stellen in fette Unicode-Zeichen um (LinkedIn kennt kein Markdown)."""
+    return BOLD_MARK.sub(lambda m: "".join(_bold_char(c) for c in m.group(1)), text)
+
+
 def escape_commentary(text):
     """Escaped LinkedIn-Sonderzeichen ("little text format"), sonst wird der Post abgeschnitten."""
     return RESERVED.sub(r"\\\1", text)
@@ -95,7 +115,7 @@ def publish(text):
     if not TOKEN_FILE.exists():
         raise RuntimeError("Nicht eingeloggt – erst `python -m linkedin_agent auth` ausführen.")
     tok = json.loads(TOKEN_FILE.read_text())
-    payload = build_payload(tok["author"], text)
+    payload = build_payload(tok["author"], apply_bold(text))
     for version in candidate_versions(tok.get("version")):
         r = requests.post("https://api.linkedin.com/rest/posts", json=payload, headers={
             "Authorization": f"Bearer {tok['access_token']}",
