@@ -39,3 +39,11 @@ def test_status_flow(tmp_path):
     db.set_status(conn, i, "approved")
     db.mark_published(conn, i, "urn:li:share:1")
     assert db.list_posts(conn, "published")[0]["linkedin_id"] == "urn:li:share:1"
+
+
+def test_candidate_versions_newest_first_and_known_first():
+    from datetime import date
+    from linkedin_agent.linkedin import candidate_versions
+    v = candidate_versions(today=date(2026, 2, 10))
+    assert v[0] == "202602" and v[1] == "202601" and v[2] == "202512" and len(v) == 12
+    assert candidate_versions("202609", today=date(2026, 10, 17))[0] == "202609"

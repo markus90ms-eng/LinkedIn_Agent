@@ -9,6 +9,7 @@ import os
 import re
 import secrets
 import webbrowser
+from datetime import date
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlparse
@@ -17,8 +18,19 @@ import requests
 
 TOKEN_FILE = Path("data/linkedin_token.json")
 REDIRECT_URI = "http://localhost:8765/callback"
-API_VERSION = "202405"
 RESERVED = re.compile(r"([\\|{}@\[\]()<>*_~])")  # '#' bleibt unescaped, damit Hashtags funktionieren
+
+
+def candidate_versions(known=None, today=None):
+    """LinkedIn schaltet alte API-Versionen ab. Reihenfolge: gesetzte, zuletzt erfolgreiche, dann die letzten 12 Monate."""
+    today = today or date.today()
+    months = []
+    y, m = today.year, today.month
+    for _ in range(12):
+        months.append(f"{y}{m:02d}")
+        y, m = (y, m - 1) if m > 1 else (y - 1, 12)
+    first = [v for v in (os.environ.get("LINKEDIN_VERSION"), known) if v]
+    return list(dict.fromkeys(first + months))
 
 
 def escape_commentary(text):
@@ -83,11 +95,18 @@ def publish(text):
     if not TOKEN_FILE.exists():
         raise RuntimeError("Nicht eingeloggt – erst `python -m linkedin_agent auth` ausführen.")
     tok = json.loads(TOKEN_FILE.read_text())
-    r = requests.post("https://api.linkedin.com/rest/posts", json=build_payload(tok["author"], text), headers={
-        "Authorization": f"Bearer {tok['access_token']}",
-        "LinkedIn-Version": API_VERSION,
-        "X-Restli-Protocol-Version": "2.0.0",
-    }, timeout=30)
-    if r.status_code != 201:
-        raise RuntimeError(f"LinkedIn-Fehler {r.status_code}: {r.text}")
-    return r.headers.get("x-restli-id", "")
+    payload = build_payload(tok["author"], text)
+    for version in candidate_versions(tok.get("version")):
+        r = requests.post("https://api.linkedin.com/rest/posts", json=payload, headers={
+            "Authorization": f"Bearer {tok['access_token']}",
+            "LinkedIn-Version": version,
+            "X-Restli-Protocol-Version": "2.0.0",
+        }, timeout=30)
+        if r.status_code == 426:  # Version nicht (mehr) aktiv, es wurde nichts gepostet
+            continue
+        if r.status_code != 201:
+            raise RuntimeError(f"LinkedIn-Fehler {r.status_code}: {r.text}")
+        tok["version"] = version
+        TOKEN_FILE.write_text(json.dumps(tok))
+        return r.headers.get("x-restli-id", "")
+    raise RuntimeError("Keine aktive LinkedIn-API-Version gefunden. Mit LINKEDIN_VERSION=JJJJMM in .env setzen.")
