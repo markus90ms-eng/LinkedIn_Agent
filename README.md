@@ -17,3 +17,8 @@ python -m linkedin_agent review                             # freigeben / per An
 python -m linkedin_agent publish                            # freigegebene Posts veröffentlichen
 ```
 Es wird nie ohne deine Freigabe gepostet. Automatisierung per Browser/Scraping ist bewusst nicht enthalten (LinkedIn-AGB).
+
+## Weboberfläche (Alltag)
+Doppelklick auf `start_assistent.bat` (oder `py -3.13 -m linkedin_agent web`). Der Browser öffnet sich auf
+http://127.0.0.1:8501 und zeigt den nächsten Post: bearbeiten, überarbeiten, neu generieren, verwerfen oder
+"Jetzt posten". "Neue Entwürfe erzeugen" füllt die Warteschlange. Läuft nur lokal, solange das Fenster offen ist.

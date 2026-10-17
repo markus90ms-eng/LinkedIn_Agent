@@ -70,11 +70,15 @@ def main(argv=None):
     ls = sub.add_parser("list")
     ls.add_argument("--status")
     sub.add_parser("auth", help="Einmalig bei LinkedIn anmelden")
+    sub.add_parser("web", help="Weboberfläche starten (nächsten Post ansehen, posten, neu generieren)")
     args = ap.parse_args(argv)
 
     load_env()
     if args.cmd == "auth":
         return linkedin.authorize()
     cfg = load_config(args.config)
+    if args.cmd == "web":
+        from .web import serve
+        return serve(cfg)
     conn = db.connect(cfg["db_path"])
     {"draft": cmd_draft, "review": cmd_review, "publish": cmd_publish, "list": cmd_list}[args.cmd](cfg, conn, args)
