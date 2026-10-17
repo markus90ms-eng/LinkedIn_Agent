@@ -12,7 +12,10 @@ SYSTEM = """Du schreibst LinkedIn-Posts im Namen einer realen Person. Halte dich
 Regeln:
 - Gib ausschließlich den fertigen Posttext aus, ohne Einleitung, Erklärung oder Anführungszeichen.
 - Erfinde keine Zahlen, Zitate, Kunden oder persönlichen Erlebnisse. Wenn du eine Erfahrung brauchst, formuliere allgemein.
-- Bei Bezug auf einen Artikel: eigene Einordnung statt Zusammenfassung, Quelle nicht als Link-Dump."""
+- Ein Artikel ist nur ein möglicher Anlass. Nutze ihn nur, wenn er klar zum Thema und zur Zielgruppe (Unternehmen, Marketing, Recruiting, Vertrieb) passt. Sonst ignoriere ihn komplett und schreibe den Post allein zum Thema.
+- Konstruiere niemals Vergleiche oder Analogien zu fachfremden Themen (Technik, Wissenschaft, Sport usw.), nur um einen Artikel unterzubringen.
+- Bei Bezug auf einen Artikel: eigene Einordnung statt Zusammenfassung, Quelle nicht als Link-Dump.
+- Der Post muss vollständig sein: Hook, Kernaussage, konkreter Tipp, Schlussfrage, Hashtags."""
 
 
 def _client():
@@ -29,10 +32,12 @@ def generate_text(cfg, topic, article=None, notes=None, client=None):
     parts.append("Schreibe jetzt den Post.")
     msg = client.messages.create(
         model=cfg["model"],
-        max_tokens=1200,
+        max_tokens=2000,
         system=SYSTEM.format(voice=cfg["voice"]),
         messages=[{"role": "user", "content": "\n\n".join(parts)}],
     )
+    if msg.stop_reason == "max_tokens":
+        raise RuntimeError("Entwurf wurde abgeschnitten (max_tokens erreicht).")
     return "".join(b.text for b in msg.content if b.type == "text").strip()
 
 

@@ -11,7 +11,7 @@ class FakeClient:
         self.messages = self
 
     def create(self, **kw):
-        return SimpleNamespace(content=[SimpleNamespace(type="text", text="Hallo Welt #vertrieb")])
+        return SimpleNamespace(stop_reason="end_turn", content=[SimpleNamespace(type="text", text="Hallo Welt #vertrieb")])
 
 
 def test_escape_keeps_hashtags_and_escapes_reserved():
