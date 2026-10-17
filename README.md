@@ -22,3 +22,10 @@ Es wird nie ohne deine Freigabe gepostet. Automatisierung per Browser/Scraping i
 Doppelklick auf `start_assistent.bat` (oder `py -3.13 -m linkedin_agent web`). Der Browser öffnet sich auf
 http://127.0.0.1:8501 und zeigt den nächsten Post: bearbeiten, überarbeiten, neu generieren, verwerfen oder
 "Jetzt posten". "Neue Entwürfe erzeugen" füllt die Warteschlange. Läuft nur lokal, solange das Fenster offen ist.
+
+## Bilder zu den Posts
+In der Weboberfläche: "Bild erstellen". Claude zeichnet eine passende Illustration (SVG), der Hook steht als Text
+darunter, unten dein Name (`image_footer` in `config.yaml`). Farbwelt (6 Stück) und Bildaufteilung wechseln bei jedem Bild,
+nie dieselbe Farbwelt wie bei den letzten Bildern. "Bild neu erstellen" zeichnet ein anderes Motiv. Der Post-Text wird immer
+komplett veröffentlicht, das Bild hängt daran (Haken "Bild mitposten"). Die Umwandlung in PNG passiert im Browser, es wird
+nichts zusätzlich installiert. Das SVG von Claude wird vorher bereinigt (keine Skripte, Links oder Fremdbilder).

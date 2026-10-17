@@ -1,27 +1,66 @@
 import json
+import xml.etree.ElementTree as ET
 from types import SimpleNamespace
 
 import pytest
 
 from linkedin_agent import db, images, linkedin
 
+SCENE = '<defs><linearGradient id="s-a"><stop offset="0" stop-color="#fff"/></linearGradient></defs><circle cx="600" cy="380" r="100" fill="url(#s-a)"/>'
 
-def test_parse_spec_strips_codeblock_and_limits():
-    spec = images.parse_spec('```json\n{"kicker":"K","headline":"Kern","points":["a","b","c","d"]}\n```')
-    assert spec["headline"] == "Kern" and spec["points"] == ["a", "b", "c"]
+
+def fake_client(text):
+    return SimpleNamespace(messages=SimpleNamespace(create=lambda **kw: SimpleNamespace(
+        stop_reason="end_turn", content=[SimpleNamespace(type="text", text=text)])))
+
+
+def test_sanitize_removes_scripts_links_events_and_unknown_tags():
+    dirty = ('<script>alert(1)</script><image href="http://evil/x.png"/><foreignObject><div/></foreignObject>'
+             '<rect width="10" height="10" onclick="x()" fill="url(http://evil/a)"/>'
+             '<circle r="5" style="fill:url(#ok)" xmlns:xlink="http://www.w3.org/1999/xlink"/><a href="javascript:x()"/>')
+    clean = images.sanitize_scene(dirty)
+    for bad in ("script", "image", "foreignObject", "onclick", "evil", "javascript", "<a "):
+        assert bad not in clean
+    assert "<rect" in clean and "<circle" in clean and "url(#ok)" in clean
+
+
+def test_sanitize_rejects_broken_xml():
     with pytest.raises(RuntimeError):
-        images.parse_spec('{"headline": ""}')
+        images.sanitize_scene("<rect><circle></rect>")
 
 
-def test_make_card_writes_png_with_alt(tmp_path):
-    class Client:
-        messages = SimpleNamespace(create=lambda **kw: SimpleNamespace(
-            stop_reason="end_turn",
-            content=[SimpleNamespace(type="text", text='{"kicker":"Tipp","headline":"Erst die Aussage","points":["Drei Sätze"]}')]))
+def test_compose_is_valid_svg_with_hook_and_footer():
+    svg = images.compose_svg(SCENE, "Erst die Aussage, dann der Kanal & mehr <wichtig>", "Markus")
+    root = ET.fromstring(svg)
+    assert root.tag.endswith("svg") and "Markus" in svg and "&amp;" in svg and "&lt;wichtig&gt;" in svg
+
+
+def test_long_hook_gets_at_most_three_lines():
+    size, lines = images._wrap_hook("Qualifizierte Leute suchen selten nur einen Job " * 4)
+    assert len(lines) <= 3
+    assert len(lines) == 2 or size <= 76
+    for hook in ("Menschen vertrauen Menschen, keinem Logo.", "Qualifizierte Leute suchen selten nur einen Job."):
+        size, lines = images._wrap_hook(hook)
+        assert 880 + (len(lines) - 1) * int(size * 1.18) <= 1062  # letzte Zeile bleibt über der Namenszeile
+
+
+def test_make_scene_writes_svg_and_alt(tmp_path):
     cfg = {"model": "m", "db_path": str(tmp_path / "t.db"), "image_footer": "Name"}
-    path, alt = images.make_card(cfg, "Text mit **Fett**", 7, client=Client())
-    assert path.endswith("7.png") and open(path, "rb").read(4) == b"\x89PNG"
-    assert alt == "Erst die Aussage Drei Sätze"
+    raw = f"<hook>Mein Hook</hook><alt>Eine Lupe</alt><scene>{SCENE}</scene>"
+    path, alt = images.make_scene(cfg, "**Mein Hook**\n\nText", 7, client=fake_client(raw))
+    assert path.endswith("7.svg") and alt == "Eine Lupe"
+    assert "Mein Hook" in open(path, encoding="utf-8").read()
+
+
+def test_make_scene_falls_back_to_first_line_of_post(tmp_path):
+    cfg = {"model": "m", "db_path": str(tmp_path / "t.db")}
+    path, _ = images.make_scene(cfg, "**Hook aus dem Post** 🙂\n\nRest", 1, client=fake_client(f"<scene>{SCENE}</scene>"))
+    assert "Hook aus dem Post" in open(path, encoding="utf-8").read()
+
+
+def test_missing_scene_is_an_error(tmp_path):
+    with pytest.raises(RuntimeError):
+        images.make_scene({"model": "m", "db_path": str(tmp_path / "t.db")}, "x", 1, client=fake_client("keine Szene"))
 
 
 def test_db_migrates_old_database(tmp_path):
@@ -32,8 +71,8 @@ def test_db_migrates_old_database(tmp_path):
     c.commit(); c.close()
     conn = db.connect(p)
     i = db.add_draft(conn, "x")
-    db.set_image(conn, i, "a.png", "alt")
-    assert conn.execute("SELECT image_path FROM posts").fetchone()[0] == "a.png"
+    db.set_image(conn, i, "a.svg", "alt")
+    assert conn.execute("SELECT image_path FROM posts").fetchone()[0] == "a.svg"
 
 
 def test_publish_with_image_uploads_then_posts(tmp_path, monkeypatch):
@@ -52,3 +91,18 @@ def test_publish_with_image_uploads_then_posts(tmp_path, monkeypatch):
     monkeypatch.setattr(linkedin.requests, "put", lambda url, **kw: SimpleNamespace(status_code=201, text=""))
     assert linkedin.publish("Text", str(img), "Alt") == "urn:li:share:5"
     assert calls[-1][2]["content"]["media"] == {"id": "urn:li:image:9", "altText": "Alt"}
+
+
+def test_palette_never_repeats_last_images_or_own_previous(tmp_path):
+    folder = tmp_path / "images"
+    folder.mkdir()
+    import os, time
+    for i, name in enumerate(("ozean", "abend", "wald")):
+        f = folder / f"{i + 1}.svg"
+        f.write_text(images.compose_svg("<circle r='5'/>", "x", "", name), encoding="utf-8")
+        os.utime(f, (time.time() + i, time.time() + i))
+    for _ in range(40):
+        chosen = images.pick_palette(folder, 9)
+        assert chosen not in ("abend", "wald")  # die zwei zuletzt erzeugten Bilder
+    for _ in range(40):
+        assert images.pick_palette(folder, 1) not in ("abend", "wald", "ozean")  # auch nicht die eigene frühere

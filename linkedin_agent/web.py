@@ -2,6 +2,7 @@
 
 Läuft nur auf 127.0.0.1 und nur, solange das Fenster offen ist.
 """
+import base64
 import html
 import os
 import re
@@ -63,8 +64,9 @@ def render(conn, token, msg="", error=False):
         img_block = ""
         if has_img:
             ver = int(os.path.getmtime(p["image_path"]))
-            img_block = (f'<img src="/img/{p["id"]}.png?v={ver}" alt="Bildvorschau" '
-                         f'style="max-width:320px;width:100%;border-radius:8px;margin-top:12px;display:block">'
+            img_block = (f'<img id="preview" src="/img/{p["id"]}.svg?v={ver}" alt="Bildvorschau" '
+                         f'style="max-width:420px;width:100%;border-radius:8px;margin-top:12px;display:block">'
+                         f'<input type="hidden" name="png" id="png">'
                          f'<label class="small"><input type="checkbox" name="with_image" value="1" checked> Bild mitposten</label>')
         img_buttons = ('<button formaction="/image">Bild neu erstellen</button>'
                        '<button formaction="/imageremove" class="danger">Bild entfernen</button>') if has_img \
@@ -77,7 +79,7 @@ def render(conn, token, msg="", error=False):
             f'<input type="hidden" name="token" value="{token}"><input type="hidden" name="id" value="{p["id"]}">'
             f'<textarea name="text">{esc(p["text"])}</textarea>{img_block}'
             f'<div class="row">'
-            f'<button class="primary" onclick="return confirm(\'Jetzt öffentlich auf LinkedIn veröffentlichen?\')">Jetzt posten</button>'
+            f'<button class="primary" onclick="return preparePost()">Jetzt posten</button>'
             f'<button type="button" onclick="wrapBold()" title="Markierten Text fett machen">Fett</button>'
             f'<button formaction="/save">Änderungen speichern</button>{img_buttons}</div></form>'
             f'<p class="small">Fett: Text markieren und auf „Fett“ klicken (setzt ** um die Stelle). '
@@ -100,6 +102,20 @@ def render(conn, token, msg="", error=False):
         items = "".join(f"<li>{esc((r['published_at'] or '')[:10])}: {esc(r['text'][:70])}…</li>" for r in published)
         parts.append(f'<div class="card"><div class="meta">Zuletzt veröffentlicht</div><ul>{items}</ul></div>')
     parts.append("""<script>
+function preparePost() {
+  if (!confirm('Jetzt öffentlich auf LinkedIn veröffentlichen?')) return false;
+  const img = document.getElementById('preview');
+  const box = document.querySelector('#main input[name=with_image]');
+  if (img && box && box.checked) {
+    if (!img.complete || !img.naturalWidth) { alert('Das Bild ist noch nicht geladen. Bitte kurz warten und noch einmal klicken.'); return false; }
+    try {
+      const c = document.createElement('canvas'); c.width = 1200; c.height = 1200;
+      c.getContext('2d').drawImage(img, 0, 0, 1200, 1200);
+      document.getElementById('png').value = c.toDataURL('image/png');
+    } catch (e) { alert('Das Bild konnte nicht umgewandelt werden: ' + e); return false; }
+  }
+  return true;
+}
 function wrapBold() {
   const t = document.querySelector('#main textarea');
   const a = t.selectionStart, b = t.selectionEnd;
@@ -137,6 +153,8 @@ def make_handler(cfg, token, port):
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(data)))
             self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'")
+            self.send_header("X-Content-Type-Options", "nosniff")
             self.end_headers()
             self.wfile.write(data)
 
@@ -147,7 +165,7 @@ def make_handler(cfg, token, port):
         def do_GET(self):
             if self.headers.get("Host") not in allowed_hosts:
                 return self._send(403, "Forbidden")
-            m = re.fullmatch(r"/img/(\d+)\.png", urlparse(self.path).path)
+            m = re.fullmatch(r"/img/(\d+)\.svg", urlparse(self.path).path)
             if m:
                 return self._image(int(m.group(1)))
             q = parse_qs(urlparse(self.path).query)
@@ -168,12 +186,14 @@ def make_handler(cfg, token, port):
             if not path or not os.path.exists(path):
                 return self._send(404, "Kein Bild")
             with open(path, "rb") as f:
-                self._send_bytes(200, f.read(), "image/png")
+                self._send_bytes(200, f.read(), "image/svg+xml")
 
         def do_POST(self):
             if self.headers.get("Host") not in allowed_hosts:
                 return self._send(403, "Forbidden")
             length = int(self.headers.get("Content-Length") or 0)
+            if length > 12_000_000:
+                return self._send(413, "Zu groß")
             form = {k: v[0] for k, v in parse_qs(self.rfile.read(length).decode("utf-8"), keep_blank_values=True).items()}
             if not secrets.compare_digest(form.get("token", ""), token):
                 return self._send(403, "Ungültiges Token")
@@ -186,6 +206,19 @@ def make_handler(cfg, token, port):
             finally:
                 conn.close()
             self._redirect(msg)
+
+        @staticmethod
+        def _save_png(svg_path, data_url):
+            prefix = "data:image/png;base64,"
+            if not data_url.startswith(prefix):
+                raise RuntimeError("Das Bild wurde nicht übertragen. Bitte Seite neu laden und noch einmal versuchen.")
+            data = base64.b64decode(data_url[len(prefix):])
+            if not data.startswith(b"\x89PNG") or len(data) > 4_500_000:
+                raise RuntimeError("Das Bild ist ungültig oder zu groß.")
+            png = os.path.splitext(svg_path)[0] + ".png"
+            with open(png, "wb") as f:
+                f.write(data)
+            return png
 
         def _act(self, conn, action, form, lock):
             pid = int(form.get("id") or 0)
@@ -200,13 +233,14 @@ def make_handler(cfg, token, port):
                 return "Gespeichert."
             if action == "image":
                 db.update_text(conn, pid, form["text"])
-                path, alt = images.make_card(cfg, form["text"], pid)
+                path, alt = images.make_scene(cfg, form["text"], pid)
                 db.set_image(conn, pid, path, alt)
                 return "Bild erstellt. Bitte unten ansehen, bei Bedarf neu erstellen."
             if action == "imageremove":
                 db.update_text(conn, pid, form["text"])
-                if row["image_path"] and os.path.exists(row["image_path"]):
-                    os.remove(row["image_path"])
+                for f in (row["image_path"], row["image_path"] and os.path.splitext(row["image_path"])[0] + ".png"):
+                    if f and os.path.exists(f):
+                        os.remove(f)
                 db.set_image(conn, pid, None, None)
                 return "Bild entfernt."
             if action == "post":
@@ -218,8 +252,9 @@ def make_handler(cfg, token, port):
                     if not text:
                         raise RuntimeError("Der Text ist leer.")
                     db.update_text(conn, pid, text)
-                    path = row["image_path"] if form.get("with_image") and row["image_path"] \
-                        and os.path.exists(row["image_path"]) else None
+                    path = None
+                    if form.get("with_image") and row["image_path"]:
+                        path = self._save_png(row["image_path"], form.get("png", ""))
                     ref = linkedin.publish(text, path, row["image_alt"])
                     db.mark_published(conn, pid, ref)
                 return "Veröffentlicht. Der Post ist jetzt auf LinkedIn."

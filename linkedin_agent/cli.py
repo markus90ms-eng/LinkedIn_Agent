@@ -1,4 +1,5 @@
 import argparse
+import os
 
 from . import db, drafts, linkedin
 from .config import load_config, load_env
@@ -47,7 +48,8 @@ def cmd_publish(cfg, conn, args):
         _show(p)
         if not args.yes and input("Jetzt auf LinkedIn veröffentlichen? [j/N] ").strip().lower() != "j":
             continue
-        pid = linkedin.publish(p["text"], p["image_path"], p["image_alt"])
+        png = (p["image_path"] or "").replace(".svg", ".png")
+        pid = linkedin.publish(p["text"], png if png.endswith(".png") and os.path.exists(png) else None, p["image_alt"])
         db.mark_published(conn, p["id"], pid)
         print("Veröffentlicht:", pid)
 
