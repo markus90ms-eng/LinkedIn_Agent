@@ -1,0 +1,24 @@
+# Modell für die Texterstellung
+model: claude-sonnet-5-5
+
+# Dein Schreibstil – je konkreter, desto besser
+voice: |
+  Sprache: Deutsch, Du-Form zum Leser. Persönlich, direkt, ohne Buzzword-Floskeln.
+  Kurze Absätze, erste Zeile ist ein starker Hook. Keine Emojis-Ketten, max. 1-2 Emojis.
+  Ende mit einer konkreten Frage oder Handlungsaufforderung.
+  Länge: 600-1200 Zeichen. 3-5 passende Hashtags am Ende.
+
+# Themen, über die du regelmäßig posten möchtest
+topics:
+  - Vertrieb im Mittelstand
+  - Lead-Generierung und Kaltakquise
+  - KI im Vertriebsalltag
+
+# RSS-Quellen, aus denen der Agent Anregungen zieht
+feeds:
+  - https://www.vertriebszeitung.de/feed/
+  - https://t3n.de/rss.xml
+
+# Pro Lauf erzeugte Entwürfe
+drafts_per_run: 3
+db_path: data/posts.db
