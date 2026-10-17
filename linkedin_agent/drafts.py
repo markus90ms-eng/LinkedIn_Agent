@@ -43,8 +43,8 @@ def _complete(cfg, client, prompt):
         system=SYSTEM.format(voice=cfg["voice"]),
         messages=[{"role": "user", "content": prompt}],
     )
-    if msg.stop_reason == "max_tokens":
-        raise RuntimeError("Entwurf wurde abgeschnitten (max_tokens erreicht).")
+    if msg.stop_reason != "end_turn":
+        raise RuntimeError(f"Entwurf unvollständig (stop_reason={msg.stop_reason}, Details: {getattr(msg, 'stop_details', None)}).")
     return "".join(b.text for b in msg.content if b.type == "text").strip()
 
 
