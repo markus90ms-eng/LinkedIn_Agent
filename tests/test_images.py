@@ -46,15 +46,15 @@ def test_long_hook_gets_at_most_three_lines():
 
 def test_make_scene_writes_svg_and_alt(tmp_path):
     cfg = {"model": "m", "db_path": str(tmp_path / "t.db"), "image_footer": "Name"}
-    raw = f"<hook>Mein Hook</hook><alt>Eine Lupe</alt><scene>{SCENE}</scene>"
-    path, alt = images.make_scene(cfg, "**Mein Hook**\n\nText", 7, client=fake_client(raw))
-    assert path.endswith("7.svg") and alt == "Eine Lupe"
+    raw = f"<idee>Eine Lupe zeigt Sichtbarkeit.</idee><hook>Mein Hook</hook><alt>Eine Lupe</alt><scene>{SCENE}</scene>"
+    path, alt, idea = images.make_scene(cfg, "**Mein Hook**\n\nText", 7, client=fake_client(raw))
+    assert path.endswith("7.svg") and alt == "Eine Lupe" and idea == "Eine Lupe zeigt Sichtbarkeit."
     assert "Mein Hook" in open(path, encoding="utf-8").read()
 
 
 def test_make_scene_falls_back_to_first_line_of_post(tmp_path):
     cfg = {"model": "m", "db_path": str(tmp_path / "t.db")}
-    path, _ = images.make_scene(cfg, "**Hook aus dem Post** 🙂\n\nRest", 1, client=fake_client(f"<scene>{SCENE}</scene>"))
+    path, _, _ = images.make_scene(cfg, "**Hook aus dem Post** 🙂\n\nRest", 1, client=fake_client(f"<scene>{SCENE}</scene>"))
     assert "Hook aus dem Post" in open(path, encoding="utf-8").read()
 
 
@@ -106,3 +106,41 @@ def test_palette_never_repeats_last_images_or_own_previous(tmp_path):
         assert chosen not in ("abend", "wald")  # die zwei zuletzt erzeugten Bilder
     for _ in range(40):
         assert images.pick_palette(folder, 1) not in ("abend", "wald", "ozean")  # auch nicht die eigene frühere
+
+
+def test_bausteine_are_expanded_validated_and_clamped():
+    scene = ('<person x="300" y="900" skin="javascript:evil" top="#ff0000" pose="boom" glasses="1"/>'
+             '<card kind="code" x="100" y="100" w="9999"/><card kind="chart" x="600" y="100"/>'
+             '<evil onclick="x()"/><seated x="500" table_y="470"/><laptop x="500" y="472"/><table x="600" y="470"/>'
+             '<lupe/><laden/><pin/><sparkle/><glow/>')
+    svg = images.build_scene(scene, "ozean")
+    assert svg.count('id="s-sh"') == 1                       # Schatten-Filter nur einmal definiert
+    assert "evil" not in svg and "javascript" not in svg and "onclick" not in svg
+    assert "#ff0000" in svg and "translate(300,650)" in svg   # Farbe geprüft, Fußposition begrenzt
+    assert "translate(500,618)" in svg                        # sitzende Figur: Hüfte auf Tischkante
+    ET.fromstring(images.compose_svg(svg, "Hook", "", "ozean"))
+
+
+def test_room_only_on_light_palette():
+    assert "s-wall" in images.build_scene("<room/>", "hell")
+    assert "s-wall" not in images.build_scene("<room/>", "ozean")
+
+
+def test_light_palette_uses_dark_text_and_prompt_mentions_mode():
+    svg = images.compose_svg("<circle r='5'/>", "Hook", "Name", "hell")
+    assert 'fill="#14284a"' in svg
+    assert "heller Verlauf" in images.build_system("hell", images.LAYOUTS[0])
+    assert "dunkler Verlauf" in images.build_system("ozean", images.LAYOUTS[0])
+    assert "@@" not in images.build_system("hell", images.LAYOUTS[0])
+
+
+def test_too_many_macros_are_capped():
+    svg = images.build_scene("<sparkle/>" * 200, "ozean")
+    assert svg.count("<path") <= 60
+
+
+def test_positions_are_kept_inside_the_canvas():
+    svg = images.build_scene('<pin x="600" y="10"/><lupe x="5" y="5"/><card kind="jobad" x="1150" y="600" w="400"/>', "ozean")
+    assert "translate(600,160) scale(1)" in svg   # Pin rutscht unter den oberen Rand
+    assert "translate(130,160) scale(1)" in svg   # Lupe bleibt vollständig im Bild
+    assert "translate(790,86.6667) scale(1.33333)" in svg  # Karte endet über der Textfläche und vor dem rechten Rand

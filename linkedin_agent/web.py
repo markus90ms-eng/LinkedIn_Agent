@@ -67,6 +67,7 @@ def render(conn, token, msg="", error=False):
             img_block = (f'<img id="preview" src="/img/{p["id"]}.svg?v={ver}" alt="Bildvorschau" '
                          f'style="max-width:420px;width:100%;border-radius:8px;margin-top:12px;display:block">'
                          f'<input type="hidden" name="png" id="png">'
+                         f'<p class="small">Bildidee: {esc(p["image_idea"] or "")}</p>'
                          f'<label class="small"><input type="checkbox" name="with_image" value="1" checked> Bild mitposten</label>')
         img_buttons = ('<button formaction="/image">Bild neu erstellen</button>'
                        '<button formaction="/imageremove" class="danger">Bild entfernen</button>') if has_img \
@@ -233,8 +234,8 @@ def make_handler(cfg, token, port):
                 return "Gespeichert."
             if action == "image":
                 db.update_text(conn, pid, form["text"])
-                path, alt = images.make_scene(cfg, form["text"], pid)
-                db.set_image(conn, pid, path, alt)
+                path, alt, idea = images.make_scene(cfg, form["text"], pid)
+                db.set_image(conn, pid, path, alt, idea)
                 return "Bild erstellt. Bitte unten ansehen, bei Bedarf neu erstellen."
             if action == "imageremove":
                 db.update_text(conn, pid, form["text"])

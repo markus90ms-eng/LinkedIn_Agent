@@ -24,8 +24,9 @@ http://127.0.0.1:8501 und zeigt den nächsten Post: bearbeiten, überarbeiten, n
 "Jetzt posten". "Neue Entwürfe erzeugen" füllt die Warteschlange. Läuft nur lokal, solange das Fenster offen ist.
 
 ## Bilder zu den Posts
-In der Weboberfläche: "Bild erstellen". Claude zeichnet eine passende Illustration (SVG), der Hook steht als Text
-darunter. Optional steht unten ein Name (`image_footer: Dein Name` in `config.yaml`, standardmäßig aus). Farbwelt (6 Stück) und Bildaufteilung wechseln bei jedem Bild,
+In der Weboberfläche: "Bild erstellen". Claude setzt aus geprüften Bausteinen (Figuren, Laptop, Büro, Laden, Lupe, Karten, Code-Fenster ...) eine passende Illustration zusammen
+(SVG) und schreibt die Bildidee dazu, die unter der Vorschau steht. Der Hook steht als Text
+darunter. Optional steht unten ein Name (`image_footer: Dein Name` in `config.yaml`, standardmäßig aus). Farbwelt (7 Stück, darunter eine helle) und Bildaufteilung wechseln bei jedem Bild,
 nie dieselbe Farbwelt wie bei den letzten Bildern. "Bild neu erstellen" zeichnet ein anderes Motiv. Der Post-Text wird immer
 komplett veröffentlicht, das Bild hängt daran (Haken "Bild mitposten"). Die Umwandlung in PNG passiert im Browser, es wird
 nichts zusätzlich installiert. Das SVG von Claude wird vorher bereinigt (keine Skripte, Links oder Fremdbilder).

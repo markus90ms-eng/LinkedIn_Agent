@@ -1,7 +1,7 @@
-"""Bildmotive zu Posts: Claude zeichnet eine Illustration (SVG), der Hook steht als Text darunter.
+"""Bildmotive zu Posts: Claude setzt eine Illustration aus geprüften Bausteinen zusammen, der Hook steht darunter.
 
 Die Umwandlung in PNG für LinkedIn übernimmt der Browser (siehe web.py), damit keine zusätzliche
-Software nötig ist. Das SVG von Claude wird vorher gründlich bereinigt (keine Skripte, keine Links).
+Software nötig ist. Alles, was Claude liefert, wird bereinigt (keine Skripte, Links oder Fremdbilder).
 """
 import random
 import re
@@ -9,39 +9,19 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from xml.sax.saxutils import escape
 
-from . import drafts
+from . import bausteine, drafts
 
 SVG_NS = "http://www.w3.org/2000/svg"
 ET.register_namespace("", SVG_NS)
 SIZE = 1200
 SCENE_HEIGHT = 760
-MAX_SCENE_BYTES = 80_000
+MAX_SCENE_BYTES = 120_000
 
 ALLOWED_TAGS = {
     "g", "defs", "rect", "circle", "ellipse", "line", "polyline", "polygon", "path", "clipPath", "mask",
     "linearGradient", "radialGradient", "stop", "filter", "feGaussianBlur", "feDropShadow", "feOffset",
     "feColorMatrix", "feBlend", "feMerge", "feMergeNode", "feFlood", "feComposite", "feTurbulence",
 }
-
-EXAMPLE = """<defs>
-<radialGradient id="s-glow" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="#3ee0cf" stop-opacity="0.5"/><stop offset="1" stop-color="#2ec4b6" stop-opacity="0"/></radialGradient>
-<linearGradient id="s-card" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#40608a"/><stop offset="1" stop-color="#25405f"/></linearGradient>
-<linearGradient id="s-hero" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#e3edf8"/></linearGradient>
-<linearGradient id="s-btn" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#27b3a6"/><stop offset="1" stop-color="#3ee0cf"/></linearGradient>
-<filter id="s-blur"><feGaussianBlur stdDeviation="3"/></filter>
-<filter id="s-shadow" x="-40%" y="-40%" width="180%" height="190%"><feDropShadow dx="0" dy="30" stdDeviation="28" flood-color="#000" flood-opacity="0.55"/></filter>
-</defs>
-<ellipse cx="600" cy="380" rx="520" ry="360" fill="url(#s-glow)"/>
-<g filter="url(#s-blur)" opacity="0.9">
-  <rect x="150" y="150" width="230" height="300" rx="22" fill="url(#s-card)"/>
-  <rect x="820" y="130" width="230" height="300" rx="22" fill="url(#s-card)"/>
-</g>
-<g transform="translate(600,380) rotate(3)" filter="url(#s-shadow)"><rect x="-150" y="-200" width="300" height="400" rx="30" fill="url(#s-hero)"/></g>
-<g transform="translate(600,380) rotate(3)">
-  <circle cx="-100" cy="20" r="16" fill="url(#s-btn)"/><path d="M-108 20 l6 7 l11 -13" stroke="#fff" stroke-width="4.5" fill="none" stroke-linecap="round"/>
-  <rect x="-68" y="13" width="160" height="14" rx="7" fill="#aebfd3"/>
-  <rect x="-110" y="146" width="220" height="52" rx="26" fill="url(#s-btn)"/>
-</g>"""
 
 PALETTES = {
     "ozean":   {"bg1": "#0b1c33", "bg2": "#143a63", "accent": "#2ec4b6", "light": "#3ee0cf", "warm": "#ffc857", "deep": "#17406b"},
@@ -50,6 +30,8 @@ PALETTES = {
     "sonne":   {"bg1": "#3a1d0c", "bg2": "#7a3a12", "accent": "#ffa940", "light": "#ffd08a", "warm": "#fff0c2", "deep": "#8a4515"},
     "violett": {"bg1": "#171040", "bg2": "#3a2a8c", "accent": "#8f7bff", "light": "#b9acff", "warm": "#5ee6c8", "deep": "#2b2370"},
     "schiefer": {"bg1": "#1a2230", "bg2": "#34475f", "accent": "#4db8ff", "light": "#9bd8ff", "warm": "#ff7a7a", "deep": "#2a3a52"},
+    "hell":    {"bg1": "#f4f7fb", "bg2": "#dfe8f4", "accent": "#f28c4a", "light": "#f6b98b", "warm": "#f2c14e", "deep": "#2b4a77",
+                "text": "#14284a", "hell": True},
 }
 
 LAYOUTS = [
@@ -57,35 +39,61 @@ LAYOUTS = [
     "Der Mittelpunkt sitzt rechts (x etwa 760), links davon ruhiger Raum mit weichem Lichtschein.",
     "Der Mittelpunkt sitzt links (x etwa 440), rechts davon kleinere Nebenelemente.",
     "Nahaufnahme: ein einziges großes Objekt füllt fast die ganze Fläche, dahinter weiche Lichtkreise.",
-    "Weitwinkel: mehrere kleine Elemente in Perspektive (Reihen, Treppe oder Pfad), ein hervorgehobenes Element.",
-    "Symmetrische Szene mit zwei Seiten, die sich gegenüberstehen, in der Mitte der Fokus.",
+    "Zwei Seiten stehen sich gegenüber (links und rechts), in der Mitte der Fokus.",
 ]
 
-SYSTEM = """Du gestaltest das Bild zu einem LinkedIn-Post: eine hochwertige Vektor-Illustration plus den Hook als Text.
-Die Leinwand für die Illustration ist 1200 x 760 Einheiten groß (x von 0 bis 1200, y von 0 bis 760). Der Hintergrund ist
-bereits ein dunkler Farbverlauf von @@BG1@@ nach @@BG2@@. Darunter steht später der Hook-Text.
+SYSTEM = """Du gestaltest das Bild zu einem LinkedIn-Post: eine saubere, flache Vektor-Illustration im Stil moderner
+Business- und Software-Illustrationen, dazu der Hook als Text. Die Leinwand der Illustration ist 1200 x 760 Einheiten
+groß (x 0 bis 1200, y 0 bis 760). Hintergrund: @@MODE@@ Darunter steht später der Hook. Wichtiges liegt zwischen y 40 und y 600.
 
-Gib genau diese drei Abschnitte aus, ohne Erklärung davor oder danach:
+Gib genau diese Abschnitte aus, ohne Text davor oder danach:
+<idee>Ein Satz: Was zeigt das Bild, und warum passt es zur Kernaussage des Posts?</idee>
 <hook>Der Hook für das Bild</hook>
 <alt>Ein Satz Bildbeschreibung für Screenreader</alt>
-<scene>SVG-Elemente der Illustration</scene>
+<scene>Die Szene aus Bausteinen</scene>
 
-Regeln für <hook>:
-- Nimm die erste Zeile des Posts. Entferne Emojis und Sternchen. Länger als 90 Zeichen: sinngemäß kürzen, nichts Neues erfinden.
+Vorgehen:
+1. Bestimme die Kernaussage des Posts in einem Satz.
+2. Wähle EINE Bildidee, die genau diese Aussage zeigt. Das Bild muss zum Inhalt des Posts passen. Nimm nichts nur zur Dekoration auf:
+   kein Diagramm, wenn es nicht um Zahlen oder Wachstum geht; keine Lupe, wenn es nicht ums Finden oder Gefundenwerden geht; kein Code-Fenster ohne IT-Bezug.
+3. Baue die Szene aus den Bausteinen. Weniger ist mehr: ein klarer Mittelpunkt, wenig Nebenelemente, nichts überlappt unsauber.
 
-Regeln für <scene>:
-- Nur SVG-Elemente (rect, circle, ellipse, path, polygon, line, g, defs, Verläufe, filter mit feGaussianBlur und feDropShadow). Keine Wurzel <svg>, kein <text>, kein <image>, kein <script>, keine Links.
-- Alle id-Namen beginnen mit "s-". Zeichne nur innerhalb von 1200 x 760.
-- Eine klare Bildidee, die die Kernaussage des Posts als Metapher zeigt, mit EINEM auffälligen Mittelpunkt (scharf, hell) vor weichem, unscharfem Hintergrund. Tiefe durch Verläufe, weiche Schatten, Lichtschein.
-- Farben (nur diese Palette, passend zum Hintergrund): Akzent @@ACCENT@@ und hell @@LIGHT@@, Wärmeton @@WARM@@, Dunkelton @@DEEP@@, dazu Weiß und helle Töne davon.
-- Bildaufteilung für diesen Post: @@LAYOUT@@
-- Wähle ein eigenes Motiv passend zum Post. Kopiere NICHT das Beispiel (Karten), es zeigt nur Stil und Technik. Menschen nur als freundliche, einfache Avatare (runde Köpfe, wenige Formen).
-- Keine Texte, Logos, Marken oder erkennbaren realen Personen. Der Mittelpunkt liegt etwa bei x 600, y 380. Unten (ab y 640) bleibt es ruhig.
-- Bleibe unter etwa 6000 Zeichen SVG.
+Passende Bildideen:
+- Team, Mitarbeiter gewinnen, Arbeitgeber, Recruiting: <room/> (nur hell) mit sitzenden und stehenden Personen am Tisch, oder <card kind="jobad"/> als Mittelpunkt.
+- Sichtbarkeit, gefunden werden, Google, Suche, Standort: <laden/> mit <lupe/> und <pin/>, ggf. wenige Personen.
+- KI, Kommunikation, Kundenfragen, Dialog: <card kind="chat"/> und <card kind="dots"/>, Person am Laptop.
+- Zahlen, Wachstum, Ergebnis: <card kind="chart"/>.
+- Tipps, Vorgehen, Checkliste: <card kind="checklist"/>.
+- IT, Technik, Digitalisierung: <card kind="code"/> mit Person am Laptop.
+- Vertrauen, Menschen, Zielgruppe: drei bis fünf <person/> nebeneinander (pose hips, wave, crossed) auf einer Linie, dahinter <glow/>.
 
-Beispiel für Stil und Technik (Farben und Motiv NICHT übernehmen):
+Bausteine (alle Werte optional, Farben als #rrggbb, Koordinaten in der Leinwand):
+- <person x y scale skin hair style top pants pose glasses flip/> Stehende Figur, x/y = Mitte der Füße (y zwischen 560 und 650), scale 0.9 bis 1.1.
+  style: short, long, bun, curly, side. pose: down, hips, crossed, tablet, wave. glasses: 1. flip: 1 spiegelt.
+  skin: #f1c7a3, #f7d9bd, #c58a65, #8d5a3b oder #e0aa84. hair: #4a2f22, #1c1613, #d9a441, #a8643a, #d9742f. Kleidung aus der Palette und neutralen Tönen.
+- <seated x table_y .../> Sitzende Person hinter einem Tisch (gleiche Werte wie person; table_y = Oberkante des Tischs, etwa 470). Reihenfolge: erst seated, dann laptop, dann table.
+- <laptop x y w h color/> Rückseite eines Laptops, y = Tischkante (etwa 472 bei table_y 470).
+- <table x y w/> Tisch, y = Oberkante (etwa 470), w = Breite.
+- <card kind x y w .../> Karte mit Schatten. kind: checklist, chart, chat, dots, jobad, code. w 200 bis 420. Farben accent, light, warm, deep.
+- <laden x y scale/> Ladengeschäft mit Markise (y = Boden, etwa 585). <lupe x y scale/> Lupe. <pin x y scale/> Standort-Pin (y = Spitze).
+- <plant x y scale/> Pflanze. <sparkle x y size color/> Funkeln (sparsam, höchstens zwei). <glow x y rx ry color/> weicher Lichtschein, am besten als erstes Element.
+- <room/> heller Büroraum mit Fenster, Lampen und Regal, Boden ab y 600. Nur auf hellem Hintergrund, immer als erstes Element.
+Zusätzlich sind einfache Formen (rect, circle, path) mit Verläufen erlaubt, wenn nötig.
+
+Regeln: höchstens 7 Personen, mindestens 120 Einheiten Abstand zwischen Figuren, nichts über den Rand hinaus. Keine Texte, Logos, Marken oder
+erkennbaren realen Personen. Farben nur aus dieser Palette: Akzent @@ACCENT@@, hell @@LIGHT@@, Wärme @@WARM@@, Dunkel @@DEEP@@, dazu Weiß und neutrale Töne.
+Bildaufteilung für diesen Post: @@LAYOUT@@
+
+Beispiel (Post über Stellenanzeigen, helle Palette):
+<idee>Eine einzelne, menschlich gestaltete Stellenanzeige steht im Mittelpunkt, weil der Post sagt, dass Bewerber ein erkennbares Umfeld suchen.</idee>
+<hook>Qualifizierte Leute suchen selten nur einen Job.</hook>
+<alt>Eine Stellenanzeige mit drei Gesichtern in einem hellen Büro.</alt>
 <scene>
-""" + EXAMPLE + """
+<room/>
+<seated x="420" table_y="470" top="#f28c4a"/><laptop x="420" y="472"/>
+<seated x="780" table_y="470" skin="#c58a65" hair="#1c1613" style="curly" top="#2b4a77"/><laptop x="780" y="472"/>
+<table x="600" y="470" w="600"/>
+<person x="1010" y="640" skin="#8d5a3b" hair="#0f0a08" style="bun" top="#f6b98b" pose="crossed"/>
 </scene>"""
 
 
@@ -103,7 +111,7 @@ def _used_palette(path):
 
 
 def pick_palette(images_dir, post_id):
-    """Zufällige Farbwelt, nie dieselbe wie beim letzten Bild und beim bisherigen Bild dieses Posts."""
+    """Zufällige Farbwelt, nie dieselbe wie bei den letzten Bildern und beim bisherigen Bild dieses Posts."""
     images_dir = Path(images_dir)
     skip = set()
     if images_dir.exists():
@@ -117,9 +125,13 @@ def pick_palette(images_dir, post_id):
 
 def build_system(palette_name, layout):
     pal = PALETTES[palette_name]
-    out = SYSTEM.replace("@@LAYOUT@@", layout)
-    for key, val in pal.items():
-        out = out.replace(f"@@{key.upper()}@@", val)
+    if pal.get("hell"):
+        mode = f"ein heller Verlauf von {pal['bg1']} nach {pal['bg2']}. Nutze <room/> oder helle Karten und kräftige Kleidungsfarben."
+    else:
+        mode = f"ein dunkler Verlauf von {pal['bg1']} nach {pal['bg2']}. Helle Karten und Figuren heben sich davon ab, <room/> ist hier nicht erlaubt."
+    out = SYSTEM.replace("@@MODE@@", mode).replace("@@LAYOUT@@", layout)
+    for key in ("accent", "light", "warm", "deep"):
+        out = out.replace(f"@@{key.upper()}@@", pal[key])
     return out
 
 
@@ -127,10 +139,10 @@ def parse_response(raw):
     def tag(name):
         m = re.search(rf"<{name}>(.*?)</{name}>", raw, re.S)
         return m.group(1).strip() if m else ""
-    hook, alt, scene = tag("hook"), tag("alt"), tag("scene")
+    hook, alt, idea, scene = tag("hook"), tag("alt"), tag("idee"), tag("scene")
     if not scene:
         raise RuntimeError("Claude hat keine Illustration geliefert, bitte noch einmal versuchen.")
-    return hook, alt, scene
+    return hook, alt, idea, scene
 
 
 def sanitize_scene(scene):
@@ -160,6 +172,15 @@ def sanitize_scene(scene):
     return "".join(ET.tostring(c, encoding="unicode") for c in root)
 
 
+def build_scene(raw_scene, palette):
+    """Baustein-Tags zu SVG ausschreiben und das Ergebnis bereinigen."""
+    try:
+        expanded = bausteine.expand(raw_scene, light=bool(PALETTES[palette].get("hell")), pal=PALETTES[palette])
+    except ET.ParseError as e:
+        raise RuntimeError(f"Die Illustration war fehlerhaft ({e}), bitte neu erstellen.")
+    return sanitize_scene(expanded)
+
+
 def _wrap(hook, size):
     per_line = int(1000 / (0.58 * size))
     lines, line = [], ""
@@ -179,8 +200,7 @@ def _wrap_hook(hook, footer=True):
     """Wählt die größte Schrift, bei der der Hook in höchstens drei Zeilen passt, ohne einzelnes Wort in der
     letzten Zeile (grobe Breitenschätzung für Fettschrift)."""
     limit = 1062 if footer else 1110  # mit Namenszeile bleibt weniger Platz
-    sizes = (92, 84, 76, 68, 60, 54)
-    fits = [(size, _wrap(hook, size)) for size in sizes]
+    fits = [(size, _wrap(hook, size)) for size in (92, 84, 76, 68, 60, 54)]
     fits = [(size, lines) for size, lines in fits
             if len(lines) <= 3 and 880 + (len(lines) - 1) * int(size * 1.18) <= limit]
     for size, lines in fits:
@@ -195,16 +215,17 @@ def _wrap_hook(hook, footer=True):
 def compose_svg(scene, hook, footer="", palette="ozean"):
     pal = PALETTES[palette]
     fade = _lerp(pal["bg1"], pal["bg2"], SCENE_HEIGHT / SIZE)
+    text_color = pal.get("text", "#ffffff")
     size, lines = _wrap_hook(hook, bool(footer))
     y = 880
     text = ""
     for line in lines:
-        text += f'<text x="100" y="{y}" font-size="{size}" font-weight="700" fill="#ffffff">{escape(line)}</text>'
+        text += f'<text x="100" y="{y}" font-size="{size}" font-weight="700" fill="{text_color}">{escape(line)}</text>'
         y += int(size * 1.18)
     foot = ""
     if footer:
-        foot = (f'<line x1="100" y1="1092" x2="1100" y2="1092" stroke="{_lerp(pal["bg2"], "#ffffff", 0.18)}" stroke-width="2"/>'
-                f'<text x="100" y="1142" font-size="34" fill="#c9d6e8">{escape(footer)}</text>')
+        foot = (f'<line x1="100" y1="1092" x2="1100" y2="1092" stroke="{_lerp(pal["bg2"], text_color, 0.18)}" stroke-width="2"/>'
+                f'<text x="100" y="1142" font-size="34" fill="{_lerp(pal["bg2"], text_color, 0.75)}">{escape(footer)}</text>')
     return (
         f'<svg xmlns="{SVG_NS}" data-palette="{palette}" width="{SIZE}" height="{SIZE}" viewBox="0 0 {SIZE} {SIZE}" '
         f"font-family=\"'Segoe UI', Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif\">"
@@ -227,14 +248,14 @@ def _first_line(text):
 
 
 def make_scene(cfg, text, post_id, client=None):
-    """Erzeugt das Bild zum Post als SVG-Datei. Liefert (Dateipfad, Alternativtext)."""
+    """Erzeugt das Bild zum Post als SVG-Datei. Liefert (Dateipfad, Alternativtext, Bildidee)."""
     plain = text.replace("**", "")
     path = Path(cfg["db_path"]).parent / "images" / f"{post_id}.svg"
     palette = pick_palette(path.parent, post_id)
     system = build_system(palette, random.choice(LAYOUTS))
     raw = drafts._call(cfg, client or drafts._client(), system, f"Post:\n{plain}", max_tokens=8000)
-    hook, alt, scene = parse_response(raw)
-    svg = compose_svg(sanitize_scene(scene), hook or _first_line(text), cfg.get("image_footer", ""), palette)
+    hook, alt, idea, scene = parse_response(raw)
+    svg = compose_svg(build_scene(scene, palette), hook or _first_line(text), cfg.get("image_footer", ""), palette)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(svg, encoding="utf-8")
-    return str(path), (alt or hook)[:300]
+    return str(path), (alt or hook)[:300], idea[:400]
