@@ -27,7 +27,7 @@ def connect(path):
     conn.row_factory = sqlite3.Row
     conn.execute(SCHEMA)
     cols = {r["name"] for r in conn.execute("PRAGMA table_info(posts)")}
-    for col in ("image_path", "image_alt", "image_idea"):  # nachträglich ergänzt, alte Datenbanken bleiben nutzbar
+    for col in ("image_path", "image_alt", "image_idea", "image_prompt"):  # nachträglich ergänzt, alte Datenbanken bleiben nutzbar
         if col not in cols:
             conn.execute(f"ALTER TABLE posts ADD COLUMN {col} TEXT")
     conn.commit()
@@ -56,6 +56,11 @@ def set_status(conn, post_id, status):
 
 def set_image(conn, post_id, path, alt, idea=None):
     conn.execute("UPDATE posts SET image_path=?, image_alt=?, image_idea=? WHERE id=?", (path, alt, idea, post_id))
+    conn.commit()
+
+
+def set_prompt(conn, post_id, prompt):
+    conn.execute("UPDATE posts SET image_prompt=? WHERE id=?", (prompt, post_id))
     conn.commit()
 
 

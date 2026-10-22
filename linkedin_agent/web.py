@@ -99,6 +99,21 @@ def render(conn, token, msg="", error=False):
             f'<input type="hidden" name="id" value="{p["id"]}">'
             f'<input type="text" name="instruction" placeholder="Anweisung, z. B. kürzer, mehr Biss, anderer Einstieg" required>'
             f'<button>Überarbeiten</button></form></div>')
+        parts.append(
+            f'<div class="card"><div class="meta">Bildwunsch für ChatGPT · wird NICHT mitgepostet</div>'
+            f'<form method="post" action="/prompt" id="promptform" '
+            f'onsubmit="document.getElementById(\'ptext\').value=document.querySelector(\'#main textarea\').value">'
+            f'<input type="hidden" name="token" value="{token}"><input type="hidden" name="id" value="{p["id"]}">'
+            f'<input type="hidden" name="text" id="ptext">'
+            f'<textarea name="prompt_text" id="promptText" style="min-height:200px" '
+            f'placeholder="Noch kein Bildwunsch. Klicke auf „Bildwunsch vorschlagen“, dann schreibt Claude einen passend zum Text.">{esc(p["image_prompt"] or "")}</textarea>'
+            f'<div class="row"><button class="primary" formaction="/promptnew">{"Neu vorschlagen" if p["image_prompt"] else "Bildwunsch vorschlagen"}</button>'
+            f'<button type="button" id="copyBtn" onclick="copyPrompt()">Kopieren</button>'
+            f'<button formaction="/promptsave">Speichern</button></div>'
+            f'<div class="row"><input type="text" name="instruction" placeholder="Anpassen, z. B. ohne Personen, heller, eher ein Büro">'
+            f'<button>Anpassen</button></div></form>'
+            f'<p class="small">Ablauf: kopieren, in ChatGPT einfügen, Bild erzeugen lassen, herunterladen und oben mit „Eigenes Bild hochladen“ anhängen. '
+            f'Der Bildwunsch basiert auf dem Text im Feld oben, der dabei mitgespeichert wird.</p></div>')
         if rest:
             items = "".join(f"<li>{esc(r['text'][:90])}…</li>" for r in rest[:5])
             parts.append(f'<div class="card"><div class="meta">Danach folgen</div><ul>{items}</ul></div>')
@@ -147,6 +162,15 @@ function uploadImage(input) {
   };
   im.onerror = () => alert('Diese Datei kann ich nicht als Bild lesen. Bitte PNG oder JPG nehmen.');
   im.src = URL.createObjectURL(f);
+}
+function copyPrompt() {
+  const t = document.getElementById('promptText');
+  const b = document.getElementById('copyBtn');
+  if (!t.value.trim()) { alert('Es gibt noch keinen Bildwunsch zum Kopieren.'); return; }
+  const done = () => { b.textContent = 'Kopiert ✓'; setTimeout(() => b.textContent = 'Kopieren', 1600); };
+  t.select();
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t.value).then(done, () => { document.execCommand('copy'); done(); });
+  else { document.execCommand('copy'); done(); }
 }
 function wrapBold() {
   const t = document.querySelector('#main textarea');
@@ -289,6 +313,19 @@ def make_handler(cfg, token, port):
             if action == "save":
                 db.update_text(conn, pid, form["text"])
                 return "Gespeichert."
+            if action == "promptsave":
+                db.set_prompt(conn, pid, form.get("prompt_text", "").strip())
+                return "Bildwunsch gespeichert."
+            if action in ("promptnew", "prompt"):
+                text = (form.get("text") or row["text"]).strip()
+                db.update_text(conn, pid, text)  # Änderungen im Textfeld gehen beim Neuladen nicht verloren
+                previous, instruction = form.get("prompt_text", "").strip(), form.get("instruction", "").strip()
+                if action == "prompt" and not (previous and instruction):
+                    raise RuntimeError("Zum Anpassen braucht es einen vorhandenen Bildwunsch und eine Anweisung.")
+                prompt = images.make_prompt(cfg, text, previous or None, instruction or None) if action == "prompt" \
+                    else images.make_prompt(cfg, text)
+                db.set_prompt(conn, pid, prompt)
+                return "Bildwunsch angepasst." if action == "prompt" else "Bildwunsch vorgeschlagen. Du kannst ihn anpassen und kopieren."
             if action == "upload":
                 db.update_text(conn, pid, form["text"])
                 self._drop_images(pid)

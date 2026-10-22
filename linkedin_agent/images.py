@@ -259,3 +259,31 @@ def make_scene(cfg, text, post_id, client=None):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(svg, encoding="utf-8")
     return str(path), (alt or hook)[:300], idea[:400]
+
+
+PROMPT_STYLE = "fotorealistisch, natürliches Licht, ruhige Farben, hochwertige Werbefotografie, leichte Tiefenschärfe"
+
+PROMPT_SYSTEM = """Du schreibst einen Bildwunsch (Prompt) für einen KI-Bildgenerator wie ChatGPT. Das Bild begleitet einen LinkedIn-Post.
+Vorgehen: Bestimme die Kernaussage des Posts. Beschreibe EINE konkrete Szene, die genau diese Aussage zeigt, nichts nur zur Dekoration.
+Gib ausschließlich den fertigen Bildwunsch aus, direkt zum Einfügen in ChatGPT, ohne Erklärung davor oder danach.
+
+Der Bildwunsch:
+- beginnt mit "Erstelle ein quadratisches Bild (1:1):"
+- beschreibt Motiv, Umgebung, Bildaufbau, Licht, Stimmung und Farben konkret, auf Deutsch, in 60 bis 120 Wörtern
+- Stil: @@STYLE@@
+- endet mit dem Satz: "Kein Text, keine Buchstaben, keine Logos, keine Wasserzeichen im Bild."
+- zeigt keine erkennbaren realen Personen, Marken oder Produkte; Menschen nur als natürliche Alltagsfiguren, wenn der Post sie braucht
+- passt zu einem seriösen B2B-Auftritt (Unternehmen, Marketing, Recruiting), nicht kitschig, keine Stock-Klischees wie Handschlag oder Glühbirne
+Der Autor des Posts ist Vertriebler und berät Mittelständler."""
+
+
+def make_prompt(cfg, post_text, previous=None, instruction=None, client=None):
+    """Bildwunsch für ChatGPT zum Post. Mit previous und instruction wird ein bestehender Wunsch angepasst."""
+    system = PROMPT_SYSTEM.replace("@@STYLE@@", cfg.get("image_prompt_style") or PROMPT_STYLE)
+    plain = post_text.replace("**", "")
+    if previous and instruction:
+        user = f"Post:\n{plain}\n\nBisheriger Bildwunsch:\n{previous}\n\nÄndere ihn so: {instruction}\nGib nur den neuen Bildwunsch aus."
+    else:
+        user = f"Post:\n{plain}"
+    raw = drafts._call(cfg, client or drafts._client(), system, user, max_tokens=900)
+    return raw.strip().strip("`").strip('"„“').strip()

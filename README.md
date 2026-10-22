@@ -35,3 +35,9 @@ nichts zusätzlich installiert. Das SVG von Claude wird vorher bereinigt (keine 
 In der Weboberfläche beim Post auf "Eigenes Bild hochladen" klicken (PNG, JPG oder WebP). Große Fotos werden im Browser auf
 höchstens 2048 Pixel verkleinert, die Vorschau erscheint, optional eine Bildbeschreibung für Screenreader eintragen.
 Mit dem Haken "Bild mitposten" wird das Bild zusammen mit dem Text veröffentlicht. "Bild entfernen" löscht es wieder.
+
+## Bildwunsch für ChatGPT (kostenlos, wird nicht mitgepostet)
+Unter dem Post gibt es ein eigenes Feld "Bildwunsch für ChatGPT". "Bildwunsch vorschlagen": Claude schreibt aus dem Text einen
+Prompt. Mit "Anpassen" (z. B. "ohne Personen") überarbeitet Claude ihn, du kannst ihn auch selbst ändern und "Speichern".
+"Kopieren" legt ihn in die Zwischenablage. Dann in ChatGPT einfügen, Bild erzeugen, herunterladen und mit "Eigenes Bild hochladen" anhängen.
+Der Stil lässt sich in `config.yaml` mit `image_prompt_style: "..."` ändern.

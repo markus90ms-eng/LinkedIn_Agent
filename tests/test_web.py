@@ -1,5 +1,6 @@
 import os
 import threading
+from types import SimpleNamespace
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -104,3 +105,35 @@ def test_post_without_image_checkbox_sends_text_only(app, monkeypatch):
     post(base, "/upload", id="1", text="T", upload=_png_data_url())
     post(base, "/post", id="1", text="T")
     assert sent == [None]
+
+
+def test_image_prompt_is_separate_and_never_posted(app, monkeypatch):
+    base, cfg, published = app
+    from linkedin_agent import images
+    calls = []
+    monkeypatch.setattr(images, "make_prompt", lambda cfg, text, previous=None, instruction=None, client=None:
+                        calls.append((text, previous, instruction)) or ("Neuer Bildwunsch" if not previous else previous + " + " + instruction))
+    page = post(base, "/promptnew", id="1", text="Aktueller Text im Feld", prompt_text="", instruction="wird ignoriert")
+    assert "Neuer Bildwunsch" in page and "NICHT mitgepostet" in page
+    assert calls[0] == ("Aktueller Text im Feld", None, None)              # Text aus dem Feld, Anweisung bei „neu“ ignoriert
+    assert "Aktueller Text im Feld" in page                                # Text wurde mitgespeichert, nichts geht verloren
+    page = post(base, "/prompt", id="1", text="Aktueller Text im Feld", prompt_text="Neuer Bildwunsch", instruction="ohne Personen")
+    assert "Neuer Bildwunsch + ohne Personen" in page and calls[1][1:] == ("Neuer Bildwunsch", "ohne Personen")
+    assert "Fehler" in post(base, "/prompt", id="1", text="x", prompt_text="", instruction="egal")   # Anpassen ohne Wunsch
+    post(base, "/promptsave", id="1", text="x", prompt_text="Von Hand geändert")
+    assert "Von Hand geändert" in urllib.request.urlopen(base + "/").read().decode()
+    post(base, "/post", id="1", text="Nur der Posttext")
+    assert published == ["Nur der Posttext"]                              # der Bildwunsch ist nicht im Post
+
+
+def test_make_prompt_uses_style_and_cleans_output():
+    from linkedin_agent import images
+    seen = {}
+
+    class C:
+        messages = SimpleNamespace(create=lambda **kw: seen.update(kw) or SimpleNamespace(stop_reason="end_turn",
+                                   content=[SimpleNamespace(type="text", text='"Erstelle ein quadratisches Bild (1:1): ein Büro."')]))
+    out = images.make_prompt({"model": "m", "image_prompt_style": "Aquarell"}, "**Hook**\n\nText", client=C())
+    assert out == "Erstelle ein quadratisches Bild (1:1): ein Büro." and "Aquarell" in seen["system"] and "**" not in seen["messages"][0]["content"]
+    images.make_prompt({"model": "m"}, "Text", previous="alt", instruction="heller", client=C())
+    assert "Bisheriger Bildwunsch:\nalt" in seen["messages"][0]["content"] and "heller" in seen["messages"][0]["content"]
