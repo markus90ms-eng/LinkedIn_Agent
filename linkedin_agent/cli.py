@@ -48,8 +48,9 @@ def cmd_publish(cfg, conn, args):
         _show(p)
         if not args.yes and input("Jetzt auf LinkedIn veröffentlichen? [j/N] ").strip().lower() != "j":
             continue
-        png = (p["image_path"] or "").replace(".svg", ".png")
-        pid = linkedin.publish(p["text"], png if png.endswith(".png") and os.path.exists(png) else None, p["image_alt"])
+        img = p["image_path"] or ""
+        img = img.replace(".svg", ".png") if img.endswith(".svg") else img  # erzeugtes Bild: PNG liegt erst nach dem Posten über die Weboberfläche vor
+        pid = linkedin.publish(p["text"], img if img and os.path.exists(img) else None, p["image_alt"])
         db.mark_published(conn, p["id"], pid)
         print("Veröffentlicht:", pid)
 

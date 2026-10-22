@@ -1,3 +1,4 @@
+import os
 import threading
 import urllib.error
 import urllib.parse
@@ -58,3 +59,48 @@ def test_rejects_bad_token(app):
     with pytest.raises(urllib.error.HTTPError) as e:
         urllib.request.urlopen(urllib.request.Request(app[0] + "/reject", data=data))
     assert e.value.code == 403
+
+
+def _png_data_url():
+    import base64, io
+    from PIL import Image
+    buf = io.BytesIO(); Image.new("RGB", (40, 30), "#3366cc").save(buf, "PNG")
+    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+
+
+def _jpg_data_url():
+    import base64, io
+    from PIL import Image
+    buf = io.BytesIO(); Image.new("RGB", (40, 30), "#cc6633").save(buf, "JPEG")
+    return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
+
+
+def test_upload_preview_post_and_remove(app, monkeypatch):
+    base, cfg, published = app
+    sent = []
+    monkeypatch.setattr(linkedin, "publish", lambda text, image=None, alt=None: sent.append((text, image, alt)) or "urn:li:share:2")
+    page = post(base, "/upload", id="1", text="Text", upload=_jpg_data_url(), alt="Ein oranges Bild")
+    assert "Bild hochgeladen" in page and 'src="/img/1.jpg' in page and 'data-kind="file"' in page and "Eigenes Bild" in page
+    assert urllib.request.urlopen(base + "/img/1.jpg").read(3) == b"\xff\xd8\xff"
+    post(base, "/post", id="1", text="Text", with_image="1")
+    assert sent[0][0] == "Text" and sent[0][1].endswith("1.upload.jpg") and sent[0][2] == "Ein oranges Bild"
+
+
+def test_upload_rejects_wrong_files_and_remove_deletes(app):
+    base, cfg, _ = app
+    assert "Fehler" in post(base, "/upload", id="1", text="T", upload="data:image/png;base64,AAAA")
+    assert "Fehler" in post(base, "/upload", id="1", text="T", upload="data:text/html;base64,PHNjcmlwdD4=")
+    post(base, "/upload", id="1", text="T", upload=_png_data_url())
+    path = os.path.join(os.path.dirname(cfg["db_path"]), "images", "1.upload.png")
+    assert os.path.exists(path)
+    post(base, "/imageremove", id="1", text="T")
+    assert not os.path.exists(path)
+
+
+def test_post_without_image_checkbox_sends_text_only(app, monkeypatch):
+    base, cfg, _ = app
+    sent = []
+    monkeypatch.setattr(linkedin, "publish", lambda text, image=None, alt=None: sent.append(image) or "urn:li:share:3")
+    post(base, "/upload", id="1", text="T", upload=_png_data_url())
+    post(base, "/post", id="1", text="T")
+    assert sent == [None]

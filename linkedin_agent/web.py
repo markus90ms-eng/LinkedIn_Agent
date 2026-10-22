@@ -64,7 +64,9 @@ def render(conn, token, msg="", error=False):
         img_block = ""
         if has_img:
             ver = int(os.path.getmtime(p["image_path"]))
-            img_block = (f'<img id="preview" src="/img/{p["id"]}.svg?v={ver}" alt="Bildvorschau" '
+            ext = os.path.splitext(p["image_path"])[1].lstrip(".").lower()
+            kind = "svg" if ext == "svg" else "file"
+            img_block = (f'<img id="preview" data-kind="{kind}" src="/img/{p["id"]}.{ext}?v={ver}" alt="Bildvorschau" '
                          f'style="max-width:420px;width:100%;border-radius:8px;margin-top:12px;display:block">'
                          f'<input type="hidden" name="png" id="png">'
                          f'<p class="small">Bildidee: {esc(p["image_idea"] or "")}</p>'
@@ -72,13 +74,18 @@ def render(conn, token, msg="", error=False):
         img_buttons = ('<button formaction="/image">Bild neu erstellen</button>'
                        '<button formaction="/imageremove" class="danger">Bild entfernen</button>') if has_img \
             else '<button formaction="/image">Bild erstellen</button>'
+        img_buttons += '<button type="button" onclick="document.getElementById(\'upfile\').click()">Eigenes Bild hochladen</button>'
+        upload_block = (f'<input type="file" id="upfile" accept="image/png,image/jpeg,image/webp" hidden onchange="uploadImage(this)">'
+                        f'<input type="hidden" name="upload" id="upload">'
+                        f'<input type="text" name="alt" placeholder="Bildbeschreibung für Screenreader (optional, gilt für das hochgeladene Bild)" '
+                        f'value="{esc(p["image_alt"] or "") if has_img and not str(p["image_path"]).endswith(".svg") else ""}" style="margin-top:12px">')
         src = f' · <a href="{esc(p["source_url"])}" target="_blank" rel="noopener">Quelle</a>' if p["source_url"] else ""
         parts.append(
             f'<div class="card"><div class="meta">Nächster Post · Thema: {esc(p["topic"] or "-")}{src} · '
             f'{len(rest)} weitere in der Warteschlange</div>'
             f'<form method="post" action="/post" id="main">'
             f'<input type="hidden" name="token" value="{token}"><input type="hidden" name="id" value="{p["id"]}">'
-            f'<textarea name="text">{esc(p["text"])}</textarea>{img_block}'
+            f'<textarea name="text">{esc(p["text"])}</textarea>{img_block}{upload_block}'
             f'<div class="row">'
             f'<button class="primary" onclick="return preparePost()">Jetzt posten</button>'
             f'<button type="button" onclick="wrapBold()" title="Markierten Text fett machen">Fett</button>'
@@ -107,7 +114,7 @@ function preparePost() {
   if (!confirm('Jetzt öffentlich auf LinkedIn veröffentlichen?')) return false;
   const img = document.getElementById('preview');
   const box = document.querySelector('#main input[name=with_image]');
-  if (img && box && box.checked) {
+  if (img && img.dataset.kind === 'svg' && box && box.checked) {
     if (!img.complete || !img.naturalWidth) { alert('Das Bild ist noch nicht geladen. Bitte kurz warten und noch einmal klicken.'); return false; }
     try {
       const c = document.createElement('canvas'); c.width = 1200; c.height = 1200;
@@ -116,6 +123,30 @@ function preparePost() {
     } catch (e) { alert('Das Bild konnte nicht umgewandelt werden: ' + e); return false; }
   }
   return true;
+}
+function uploadImage(input) {
+  const f = input.files[0];
+  if (!f) return;
+  const im = new Image();
+  im.onload = () => {
+    const k = Math.min(1, 2048 / Math.max(im.naturalWidth, im.naturalHeight));
+    const c = document.createElement('canvas');
+    c.width = Math.round(im.naturalWidth * k); c.height = Math.round(im.naturalHeight * k);
+    const ctx = c.getContext('2d');
+    const encode = (png) => {
+      if (!png) { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height); }
+      ctx.drawImage(im, 0, 0, c.width, c.height);
+      return c.toDataURL(png ? 'image/png' : 'image/jpeg', 0.9);
+    };
+    let data = encode(f.type === 'image/png');
+    if (data.length > 6000000) data = encode(false);  // große PNG-Fotos als JPEG, sonst zu groß für LinkedIn
+    document.getElementById('upload').value = data;
+    const form = document.getElementById('main');
+    form.action = '/upload';
+    form.submit();
+  };
+  im.onerror = () => alert('Diese Datei kann ich nicht als Bild lesen. Bitte PNG oder JPG nehmen.');
+  im.src = URL.createObjectURL(f);
 }
 function wrapBold() {
   const t = document.querySelector('#main textarea');
@@ -166,7 +197,7 @@ def make_handler(cfg, token, port):
         def do_GET(self):
             if self.headers.get("Host") not in allowed_hosts:
                 return self._send(403, "Forbidden")
-            m = re.fullmatch(r"/img/(\d+)\.svg", urlparse(self.path).path)
+            m = re.fullmatch(r"/img/(\d+)\.(svg|png|jpg)", urlparse(self.path).path)
             if m:
                 return self._image(int(m.group(1)))
             q = parse_qs(urlparse(self.path).query)
@@ -186,8 +217,11 @@ def make_handler(cfg, token, port):
             path = row["image_path"] if row else None
             if not path or not os.path.exists(path):
                 return self._send(404, "Kein Bild")
+            kind = {".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg"}.get(os.path.splitext(path)[1].lower())
+            if not kind:
+                return self._send(404, "Kein Bild")
             with open(path, "rb") as f:
-                self._send_bytes(200, f.read(), "image/svg+xml")
+                self._send_bytes(200, f.read(), kind)
 
         def do_POST(self):
             if self.headers.get("Host") not in allowed_hosts:
@@ -207,6 +241,29 @@ def make_handler(cfg, token, port):
             finally:
                 conn.close()
             self._redirect(msg)
+
+        @staticmethod
+        def _drop_images(post_id):
+            folder = os.path.join(os.path.dirname(cfg["db_path"]) or ".", "images")
+            for name in (f"{post_id}.svg", f"{post_id}.png", f"{post_id}.upload.png", f"{post_id}.upload.jpg"):
+                if os.path.exists(os.path.join(folder, name)):
+                    os.remove(os.path.join(folder, name))
+
+        @staticmethod
+        def _save_upload(post_id, data_url):
+            m = re.fullmatch(r"data:image/(png|jpeg);base64,(.+)", data_url or "", re.S)
+            if not m:
+                raise RuntimeError("Das Bild wurde nicht übertragen. Bitte PNG oder JPG nehmen und noch einmal versuchen.")
+            data = base64.b64decode(m.group(2))
+            ok = data.startswith(b"\x89PNG") if m.group(1) == "png" else data.startswith(b"\xff\xd8\xff")
+            if not ok or len(data) > 4_500_000:
+                raise RuntimeError("Das Bild ist ungültig oder größer als 4,5 MB.")
+            folder = os.path.join(os.path.dirname(cfg["db_path"]) or ".", "images")
+            os.makedirs(folder, exist_ok=True)
+            path = os.path.join(folder, f"{post_id}.upload.{'png' if m.group(1) == 'png' else 'jpg'}")
+            with open(path, "wb") as f:
+                f.write(data)
+            return path
 
         @staticmethod
         def _save_png(svg_path, data_url):
@@ -232,16 +289,23 @@ def make_handler(cfg, token, port):
             if action == "save":
                 db.update_text(conn, pid, form["text"])
                 return "Gespeichert."
+            if action == "upload":
+                db.update_text(conn, pid, form["text"])
+                self._drop_images(pid)
+                path = self._save_upload(pid, form.get("upload", ""))
+                db.set_image(conn, pid, path, form.get("alt", "").strip()[:300], "Eigenes Bild")
+                return "Bild hochgeladen. Es wird mitgepostet, solange der Haken gesetzt ist."
             if action == "image":
                 db.update_text(conn, pid, form["text"])
+                old = row["image_path"]
                 path, alt, idea = images.make_scene(cfg, form["text"], pid)
+                if old and not str(old).endswith(".svg") and os.path.exists(old):
+                    os.remove(old)  # früher hochgeladenes Bild wird durch das neue Motiv ersetzt
                 db.set_image(conn, pid, path, alt, idea)
                 return "Bild erstellt. Bitte unten ansehen, bei Bedarf neu erstellen."
             if action == "imageremove":
                 db.update_text(conn, pid, form["text"])
-                for f in (row["image_path"], row["image_path"] and os.path.splitext(row["image_path"])[0] + ".png"):
-                    if f and os.path.exists(f):
-                        os.remove(f)
+                self._drop_images(pid)
                 db.set_image(conn, pid, None, None)
                 return "Bild entfernt."
             if action == "post":
@@ -255,7 +319,10 @@ def make_handler(cfg, token, port):
                     db.update_text(conn, pid, text)
                     path = None
                     if form.get("with_image") and row["image_path"]:
-                        path = self._save_png(row["image_path"], form.get("png", ""))
+                        if str(row["image_path"]).endswith(".svg"):
+                            path = self._save_png(row["image_path"], form.get("png", ""))
+                        elif os.path.exists(row["image_path"]):
+                            path = row["image_path"]  # hochgeladenes Bild, bereits PNG oder JPG
                     ref = linkedin.publish(text, path, row["image_alt"])
                     db.mark_published(conn, pid, ref)
                 return "Veröffentlicht. Der Post ist jetzt auf LinkedIn."

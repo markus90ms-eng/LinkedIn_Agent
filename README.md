@@ -30,3 +30,8 @@ darunter. Optional steht unten ein Name (`image_footer: Dein Name` in `config.ya
 nie dieselbe Farbwelt wie bei den letzten Bildern. "Bild neu erstellen" zeichnet ein anderes Motiv. Der Post-Text wird immer
 komplett veröffentlicht, das Bild hängt daran (Haken "Bild mitposten"). Die Umwandlung in PNG passiert im Browser, es wird
 nichts zusätzlich installiert. Das SVG von Claude wird vorher bereinigt (keine Skripte, Links oder Fremdbilder).
+
+## Eigenes Bild hochladen
+In der Weboberfläche beim Post auf "Eigenes Bild hochladen" klicken (PNG, JPG oder WebP). Große Fotos werden im Browser auf
+höchstens 2048 Pixel verkleinert, die Vorschau erscheint, optional eine Bildbeschreibung für Screenreader eintragen.
+Mit dem Haken "Bild mitposten" wird das Bild zusammen mit dem Text veröffentlicht. "Bild entfernen" löscht es wieder.
